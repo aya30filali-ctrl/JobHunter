@@ -10,10 +10,15 @@ public class JobDAO {
 
     // METHOD A: Only saves the Job (Independent of any user)
     public void saveJob(Offre job) {
+        // FIX: We added 'ville=VALUES(ville)' and 'entreprise=VALUES(entreprise)'
         String sql = "INSERT INTO offres (titre, description, entreprise, ville, url, category) " +
                 "VALUES (?, ?, ?, ?, ?, ?) " +
-                "ON DUPLICATE KEY UPDATE description=VALUES(description), " +
-                "category=VALUES(category), date_scrapped=CURRENT_TIMESTAMP";
+                "ON DUPLICATE KEY UPDATE " +
+                "description=VALUES(description), " +
+                "category=VALUES(category), " +
+                "ville=VALUES(ville), " +             // <--- CRITICAL FIX
+                "entreprise=VALUES(entreprise), " +    // <--- CRITICAL FIX
+                "date_scrapped=CURRENT_TIMESTAMP";
 
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -32,7 +37,6 @@ public class JobDAO {
             System.err.println("DB Error (saveJob): " + e.getMessage());
         }
     }
-
     // METHOD B: Only saves the Match Result (Links a specific CV to a Job)
     public void saveMatch(int cvId, String jobUrl, double score) {
         String sql = "INSERT INTO matching_results (cv_id, job_url, match_score) VALUES (?, ?, ?)";

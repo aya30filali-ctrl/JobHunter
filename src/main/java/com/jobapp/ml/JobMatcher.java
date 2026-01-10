@@ -1,46 +1,60 @@
 package com.jobapp.ml;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 public class JobMatcher {
 
-    public double calculateMatchScore(String cvText, String jobDescription) {
-        if (cvText == null || jobDescription == null) return 0.0;
+    // Main method to calculate similarity (0% to 100%)
+    public double calculateScore(String cvText, String jobText) {
+        // 1. Tokenize (Clean and split text into words)
+        Map<String, Integer> cvVector = getTermFrequency(cvText);
+        Map<String, Integer> jobVector = getTermFrequency(jobText);
 
-        Map<String, Integer> cvVector = getWordFrequency(cvText);
-        Map<String, Integer> jobVector = getWordFrequency(jobDescription);
+        // 2. Get all unique words from both texts
+        Set<String> allWords = new HashSet<>();
+        allWords.addAll(cvVector.keySet());
+        allWords.addAll(jobVector.keySet());
 
-        return cosineSimilarity(cvVector, jobVector) * 100;
-    }
-
-    private Map<String, Integer> getWordFrequency(String text) {
-        Map<String, Integer> frequencyMap = new HashMap<>();
-        String[] words = text.toLowerCase().split("\\W+");
-        for (String word : words) {
-            if (word.length() > 2) {
-                frequencyMap.put(word, frequencyMap.getOrDefault(word, 0) + 1);
-            }
-        }
-        return frequencyMap;
-    }
-
-    private double cosineSimilarity(Map<String, Integer> vec1, Map<String, Integer> vec2) {
-        Set<String> allWords = new HashSet<>(vec1.keySet());
-        allWords.addAll(vec2.keySet());
-
+        // 3. Calculate Cosine Similarity
         double dotProduct = 0.0;
-        double normA = 0.0;
-        double normB = 0.0;
+        double normCV = 0.0;
+        double normJob = 0.0;
 
         for (String word : allWords) {
-            int val1 = vec1.getOrDefault(word, 0);
-            int val2 = vec2.getOrDefault(word, 0);
-            dotProduct += val1 * val2;
-            normA += Math.pow(val1, 2);
-            normB += Math.pow(val2, 2);
+            int cvFreq = cvVector.getOrDefault(word, 0);
+            int jobFreq = jobVector.getOrDefault(word, 0);
+
+            dotProduct += cvFreq * jobFreq;
+            normCV += Math.pow(cvFreq, 2);
+            normJob += Math.pow(jobFreq, 2);
         }
 
-        if (normA == 0 || normB == 0) return 0.0;
-        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+        double magnitude = (Math.sqrt(normCV) * Math.sqrt(normJob));
+
+        if (magnitude == 0.0) return 0.0; // Avoid division by zero
+
+        double cosine = dotProduct / magnitude;
+
+        // Return percentage (e.g., 0.85 -> 85.0)
+        return cosine * 100;
+    }
+
+    // Helper: Turns text into a list of word counts
+    private Map<String, Integer> getTermFrequency(String text) {
+        Map<String, Integer> vector = new HashMap<>();
+        if (text == null) return vector;
+
+        // Clean text: lowercase, remove weird chars, split by spaces
+        String[] words = text.toLowerCase().replaceAll("[^a-z0-9à-ÿ ]", "").split("\\s+");
+
+        for (String word : words) {
+            if (word.length() > 2) { // Ignore tiny words like "le", "de", "a"
+                vector.put(word, vector.getOrDefault(word, 0) + 1);
+            }
+        }
+        return vector;
     }
 }

@@ -1,7 +1,7 @@
 package com.jobapp.scraping;
 
+import com.jobapp.ml.JobClassifier;
 import com.jobapp.model.Offre;
-import com.jobapp.ml.JobClassifier; // <--- 1. NEW IMPORT
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -11,70 +11,71 @@ import java.util.List;
 
 public class RekruteScraper implements JobScraper {
 
-    // 2. Instantiate the Classifier (The "Brain")
     private JobClassifier classifier = new JobClassifier();
 
+    @Override
     public List<Offre> scrape(String keyword) {
         List<Offre> list = new ArrayList<>();
-        String url = "https://www.rekrute.com/offres-emploi-maroc.html?s=" + keyword + "&p=1";
-        
-        try {
-            // Connect to the website
-            Document doc = Jsoup.connect(url)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-                    .timeout(60000) // <--- CHANGE TO 60000 (60 Seconds)
-                    .get();
 
-            // Select the Job Card
-            Elements jobs = doc.select("div.job-listing");
-            
-            System.out.println("DEBUG: Found " + jobs.size() + " job cards.");
+        // --- UPDATE: INCREASED TO 20 PAGES ---
+        int maxPages = 70;
+        // -------------------------------------
 
-            for (Element job : jobs) {
-                // --- A. Extract Title ---
-                String title = job.select("span.rekh3").text();
-                if (title.isEmpty()) continue;
+        for (int i = 1; i <= maxPages; i++) {
+            String url = "https://www.rekrute.com/offres-emploi-maroc.html?s=" + keyword + "&p=" + i;
 
-                // --- B. Extract Company & City ---
-                String company = "Confidential";
-                String city = "Maroc";
-                String rawInfo = "";
+            try {
+                System.out.println("   -> Connecting to Page " + i + "...");
+                Document doc = Jsoup.connect(url)
+                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .timeout(60000)
+                        .get();
 
-                Element icon = job.select("i.la-building").first();
-                if (icon != null) {
-                    rawInfo = icon.parent().text();
-                }
+                // Select jobs (Fallback logic included)
+                Elements jobs = doc.select("li.post-id");
+                if (jobs.isEmpty()) jobs = doc.select("div.job-listing");
 
-                if (rawInfo.contains("|")) {
-                    String[] parts = rawInfo.split("\\|");
-                    company = parts[0].trim();
-                    if (parts.length > 1) {
-                        city = parts[1].trim();
+                System.out.println("      Found " + jobs.size() + " jobs on page " + i);
+
+                if (jobs.isEmpty()) break; // Stop if no more jobs
+
+                for (Element job : jobs) {
+                    // 1. Title
+                    String title = job.select("h2").text();
+                    if (title.isEmpty()) title = job.select("span.rekh3").text();
+                    if (title.isEmpty()) continue;
+
+                    String company = "Confidential";
+                    String city = "Maroc";
+
+                    // 2. Intelligent Extraction (Title Splitter for City)
+                    if (title.contains("|")) {
+                        String[] parts = title.split("\\|");
+                        title = parts[0].trim();
+                        city = parts[1].replace("(Maroc)", "").trim();
                     }
-                } else if (!rawInfo.isEmpty()) {
-                    company = rawInfo.trim();
+
+                    // 3. Company Extraction
+                    String imgTitle = job.select("img").attr("title");
+                    if (!imgTitle.isEmpty()) company = imgTitle;
+
+                    // 4. Link & Desc
+                    String link = job.select("a").attr("href");
+                    if (!link.startsWith("http")) link = "https://www.rekrute.com" + link;
+                    String desc = job.text();
+
+                    // 5. Classify
+                    String category = classifier.predictCategory(title + " " + desc);
+
+                    list.add(new Offre(title, desc, city, company, link, category));
                 }
 
-                // --- C. Extract URL ---
-                String link = job.parent().attr("href");
-                if (!link.startsWith("http")) {
-                    link = "https://www.rekrute.com" + link;
-                }
-
-                // --- D. Extract Description ---
-                String desc = job.text(); 
-
-                // --- E. NEW STEP: CLASSIFY THE JOB ---
-                // We send the Title + Description to the AI model to guess the category
-                String category = classifier.predictCategory(title + " " + desc);
-
-                // --- F. Create Object (Now with 6 arguments) ---
-                list.add(new Offre(title, desc, city, company, link, category));
+            } catch (Exception e) {
+                System.err.println("Error on page " + i + ": " + e.getMessage());
             }
-        } catch (Exception e) {
-            System.err.println("Scraping Error: " + e.getMessage());
-            e.printStackTrace();
         }
+
+        System.out.println(">>> REKRUTE FINISHED. Total Jobs Scraped: " + list.size());
         return list;
     }
 }
