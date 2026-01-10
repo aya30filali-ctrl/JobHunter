@@ -9,7 +9,7 @@ import org.jsoup.select.Elements;
 import java.util.ArrayList;
 import java.util.List;
 
-public class RekruteScraper {
+public class RekruteScraper implements JobScraper {
 
     // 2. Instantiate the Classifier (The "Brain")
     private JobClassifier classifier = new JobClassifier();
@@ -22,7 +22,7 @@ public class RekruteScraper {
             // Connect to the website
             Document doc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-                    .timeout(10000)
+                    .timeout(60000) // <--- CHANGE TO 60000 (60 Seconds)
                     .get();
 
             // Select the Job Card
