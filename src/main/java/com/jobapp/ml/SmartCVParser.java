@@ -1,61 +1,49 @@
 package com.jobapp.ml;
 
-import java.util.*;
-import java.util.stream.Collectors;
+import opennlp.tools.doccat.DoccatModel;
+import opennlp.tools.doccat.DocumentCategorizerME;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
 
 public class SmartCVParser {
-
-    // 1. Liste des mots à ignorer (Stop Words) - J'ai ajouté 'driven', 'morocco', 'summary'
-    private static final Set<String> STOP_WORDS = Set.of(
-            "le", "la", "les", "de", "des", "du", "un", "une", "et", "ou", "à", "en", "pour", "par",
-            "je", "tu", "il", "nous", "vous", "ils", "mon", "ma", "mes", "sur", "dans",
-            "the", "a", "an", "and", "or", "of", "to", "in", "on", "with", "by", "for",
-            "is", "are", "was", "were", "be", "been", "have", "has", "had",
-            "email", "tel", "phone", "address", "adresse", "contact", "curriculum", "vitae", "resume",
-            "page", "né", "date", "naissance", "nationality", "nationalité", "competences", "skills",
-            "education", "formation", "experience", "professionnelle", "langues", "languages",
-            "soft", "hard", "loisirs", "interets", "ref", "reference",
-            "morocco", "maroc", "kenitra", "casablanca", "rabat", "driven", "passionate", "motivated"
-    );
-
-    // 2. Dictionnaire de mots "GOLD" (Donne un gros bonus de score)
-    private static final Set<String> TECH_KEYWORDS = Set.of(
-            "java", "python", "c++", "c#", "php", "javascript", "typescript", "kotlin", "swift",
-            "spring", "laravel", "symfony", "django", "flask", "react", "angular", "vue", "flutter",
-            "sql", "mysql", "postgresql", "oracle", "mongodb", "docker", "kubernetes", "aws", "azure",
-            "developer", "développeur", "engineer", "ingénieur", "fullstack", "backend", "frontend",
-            "data", "scientist", "analyst", "devops", "mobile", "web", "software", "informatique"
-    );
 
     public String extractSearchQuery(String rawText) {
         if (rawText == null || rawText.isEmpty()) return "java";
 
-        // Nettoyage
-        String cleanText = rawText.toLowerCase()
-                .replaceAll("[^a-zA-Z0-9éèàêâûîô+]", " "); // On garde le '+' pour C++
+        String predictedCategory = "java"; // Valeur par défaut
 
-        String[] words = cleanText.split("\\s+");
-        Map<String, Integer> wordScores = new HashMap<>();
+        try {
+            // 1. On cherche le cerveau qu'on vient de créer
+            File modelFile = new File("recruitment_model.bin");
 
-        for (String word : words) {
-            if (word.length() > 2 && !STOP_WORDS.contains(word)) {
+            if (modelFile.exists()) {
+                try (InputStream modelIn = new FileInputStream(modelFile)) {
+                    // 2. On charge le modèle
+                    DoccatModel model = new DoccatModel(modelIn);
+                    DocumentCategorizerME myCategorizer = new DocumentCategorizerME(model);
 
-                int score = 1; // Score de base
+                    // 3. On nettoie le texte du CV (minuscules, sans caractères spéciaux)
+                    String[] tokens = rawText.toLowerCase()
+                            .replaceAll("[^a-z0-9 ]", " ")
+                            .split("\\s+");
 
-                // Si c'est un mot technique, on multiplie son score par 10 !
-                if (TECH_KEYWORDS.contains(word)) {
-                    score = 10;
+                    // 4. L'IA devine la catégorie
+                    double[] outcomes = myCategorizer.categorize(tokens);
+                    predictedCategory = myCategorizer.getBestCategory(outcomes);
+
+                    System.out.println("🧠 IA a prédit le profil : " + predictedCategory);
                 }
-
-                wordScores.put(word, wordScores.getOrDefault(word, 0) + score);
+            } else {
+                System.out.println("⚠️ Fichier .bin introuvable, utilisation du fallback.");
             }
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
 
-        // On prend les 3 meilleurs scores
-        return wordScores.entrySet().stream()
-                .sorted((e1, e2) -> e2.getValue().compareTo(e1.getValue())) // Tri décroissant
-                .limit(3)
-                .map(Map.Entry::getKey)
-                .collect(Collectors.joining(" "));
+        // On enlève les underscores pour la recherche (ex: Java_Dev -> Java Dev)
+        return predictedCategory.replace("_", " ");
     }
 }
