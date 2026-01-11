@@ -103,4 +103,4 @@ public class MarocAnnoncesScraper implements JobScraper {
         }
         return list;
     }
-}
+}//test
