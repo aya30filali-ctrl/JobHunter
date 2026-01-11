@@ -1,11 +1,10 @@
 package com.jobapp.main;
 
 import com.formdev.flatlaf.FlatDarkLaf;
-import com.formdev.flatlaf.extras.FlatSVGIcon;
 import com.jobapp.dao.CVDAO;
 import com.jobapp.dao.JobDAO;
-import com.jobapp.ml.CVParser;
-import com.jobapp.ml.JobMatcher;
+import com.jobapp.service.NeuralMatchingEngine;
+import com.jobapp.ml.SmartCVParser;
 import com.jobapp.model.Offre;
 import com.jobapp.scraping.EmploiMaScraper;
 import com.jobapp.scraping.RekruteScraper;
@@ -14,187 +13,226 @@ import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 
 import javax.swing.*;
+import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
-import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.border.LineBorder;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.geom.RoundRectangle2D;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class MainGui extends JFrame {
 
-    // --- PALETTE "OBSIDIAN PRESTIGE" ---
-    private final Color BG_DARK = new Color(15, 23, 42);       // Slate 900
-    private final Color PANEL_GLASS = new Color(30, 41, 59, 200); // Slate 800 (Alpha)
-    private final Color ACCENT_CYAN = new Color(6, 182, 212);  // Cyan 500
-    private final Color ACCENT_PURPLE = new Color(139, 92, 246); // Violet 500
-    private final Color TEXT_PRIMARY = new Color(248, 250, 252);
+    // --- COULEURS ---
+    private final Color BG_DARK = new Color(15, 23, 42);
+    private final Color PANEL_GLASS = new Color(30, 41, 59, 255);
+    private final Color ACCENT_CYAN = new Color(6, 182, 212);
+    private final Color ACCENT_BLUE = new Color(59, 130, 246);
+    private final Color ACCENT_PURPLE = new Color(139, 92, 246);
+    private final Color BUTTON_INACTIVE = new Color(67, 56, 202);
     private final Color TEXT_SECONDARY = new Color(148, 163, 184);
 
-    // Components
+    // Composants UI
     private JTextField searchField;
     private JTextArea cvArea;
     private DefaultTableModel tableModel;
     private JTable resultsTable;
     private JLabel statusLabel;
-    private ProgressBarCustom progressBar;
+    private JProgressBar progressBar;
 
-    // Backend Services
+    private JButton btnImport;
+    private JButton btnMatch;
+
+    // Filtres (On garde seulement Catégorie et Ville)
+    private JComboBox<String> comboCategory;
+    private JComboBox<String> comboCity;
+
+    // Backend
     private final JobDAO jobDao = new JobDAO();
-    private final CVDAO cvDao = new CVDAO();
-    private final JobMatcher matcher = new JobMatcher();
-    private final CVParser cvParser = new CVParser();
-    private List<Offre> currentJobs = new ArrayList<>();
-    private final com.jobapp.ml.SmartCVParser smartParser = new com.jobapp.ml.SmartCVParser();
+    private final NeuralMatchingEngine neuralMatcher = new NeuralMatchingEngine();
+    private final SmartCVParser smartParser = new SmartCVParser();
+
+    private List<Offre> allJobs = new ArrayList<>();
+    private List<Offre> displayedJobs = new ArrayList<>();
 
     public MainGui() {
-        // Setup Theme
-        try {
-            UIManager.setLookAndFeel(new FlatDarkLaf());
-            UIManager.put("Component.arc", 16);
-            UIManager.put("ScrollBar.width", 10);
-            UIManager.put("Table.showHorizontalLines", false);
-            UIManager.put("Table.showVerticalLines", false);
-        } catch (Exception e) { e.printStackTrace(); }
-
-        setTitle("JobHunter");
-        setSize(1400, 900);
+        setupTheme();
+        setTitle("JobHunter - Intelligent Recruitment Platform");
+        setSize(1440, 900);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
 
-        // --- MAIN LAYOUT ---
-        JPanel mainPanel = new JPanel(new BorderLayout());
+        JPanel mainPanel = new JPanel(new BorderLayout(20, 20));
         mainPanel.setBackground(BG_DARK);
+        mainPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
         setContentPane(mainPanel);
 
-        // 1. Sidebar (Controls)
-        mainPanel.add(createSidebar(), BorderLayout.WEST);
+        mainPanel.add(createTopBar(), BorderLayout.NORTH);
 
-        // 2. Dashboard (Results)
-        mainPanel.add(createDashboard(), BorderLayout.CENTER);
+        JPanel contentPanel = new JPanel(new GridLayout(1, 2, 20, 0));
+        contentPanel.setOpaque(false);
+        contentPanel.add(createCandidatePanel());
+        contentPanel.add(createResultsPanel());
+
+        mainPanel.add(contentPanel, BorderLayout.CENTER);
+        mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
     }
 
-    // ---------------- UI SECTIONS ----------------
+    // --- TOP BAR ---
+    private JPanel createTopBar() {
+        JPanel header = new RoundedPanel(15, PANEL_GLASS);
+        header.setLayout(new BorderLayout(20, 10));
+        header.setBorder(new EmptyBorder(15, 20, 15, 20));
+        header.setPreferredSize(new Dimension(0, 120));
 
-    private JPanel createSidebar() {
-        JPanel sidebar = new JPanel();
-        sidebar.setPreferredSize(new Dimension(380, 0));
-        sidebar.setBackground(BG_DARK); // Blend with background
-        sidebar.setLayout(new BorderLayout());
-        sidebar.setBorder(new EmptyBorder(30, 30, 30, 30));
+        // Ligne 1 : Logo + Recherche
+        JPanel topRow = new JPanel(new BorderLayout(20, 0));
+        topRow.setOpaque(false);
 
-        // --- Container with Glass Effect ---
-        JPanel glassContainer = new RoundedPanel(20, PANEL_GLASS);
-        glassContainer.setLayout(new GridBagLayout());
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.insets = new Insets(0, 20, 15, 20);
-        gbc.gridx = 0;
-
-        // Logo
-        JLabel logo = new JLabel("RECRUIT.AI");
-        logo.setFont(new Font("Segoe UI", Font.BOLD, 32));
+        JLabel logo = new JLabel("JobHunter");
+        logo.setFont(new Font("Segoe UI", Font.BOLD, 28));
         logo.setForeground(ACCENT_CYAN);
-        logo.setHorizontalAlignment(SwingConstants.CENTER);
-        gbc.gridy = 0; gbc.insets = new Insets(30, 20, 40, 20);
-        glassContainer.add(logo, gbc);
 
-        // Section: Market
-        gbc.gridy++; gbc.insets = new Insets(0, 20, 5, 20);
-        glassContainer.add(createLabel("MARKET INTELLIGENCE"), gbc);
+        JPanel searchContainer = new JPanel(new BorderLayout(10, 0));
+        searchContainer.setOpaque(false);
 
-        searchField = createStyledTextField("Java, Finance, Manager...");
-        gbc.gridy++; gbc.insets = new Insets(0, 20, 15, 20);
-        glassContainer.add(searchField, gbc);
+        searchField = new JTextField("Importez un CV pour auto-générer les mots-clés...");
+        searchField.setFont(new Font("Segoe UI", Font.PLAIN, 16));
+        searchField.setBackground(BG_DARK);
+        searchField.setForeground(Color.WHITE);
+        searchField.setCaretColor(ACCENT_CYAN);
+        searchField.setBorder(new CompoundBorder(
+                new LineBorder(new Color(71, 85, 105)),
+                new EmptyBorder(10, 15, 10, 15)));
 
-        JButton scrapeBtn = createGradientButton("Sync Market Data", ACCENT_CYAN, new Color(59, 130, 246));
-        scrapeBtn.addActionListener(e -> startScraping());
-        gbc.gridy++;
-        glassContainer.add(scrapeBtn, gbc);
+        JButton btnScrape = createButton("🌍 Synchroniser Marché", ACCENT_CYAN);
+        btnScrape.addActionListener(e -> startScraping());
 
-        // Section: Candidate
-        gbc.gridy++; gbc.insets = new Insets(30, 20, 5, 20);
-        glassContainer.add(createLabel("CANDIDATE PROFILING"), gbc);
+        searchContainer.add(searchField, BorderLayout.CENTER);
+        searchContainer.add(btnScrape, BorderLayout.EAST);
 
-        JButton pdfBtn = createOutlinedButton("Import PDF Resume");
-        pdfBtn.addActionListener(e -> importPDF());
-        gbc.gridy++; gbc.insets = new Insets(0, 20, 10, 20);
-        glassContainer.add(pdfBtn, gbc);
+        topRow.add(logo, BorderLayout.WEST);
+        topRow.add(searchContainer, BorderLayout.CENTER);
 
-        cvArea = new JTextArea(8, 20);
-        cvArea.setFont(new Font("Consolas", Font.PLAIN, 12));
-        cvArea.setBackground(new Color(15, 23, 42));
-        cvArea.setForeground(Color.LIGHT_GRAY);
-        cvArea.setCaretColor(Color.WHITE);
-        cvArea.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        cvArea.setLineWrap(true);
-        JScrollPane scrollCv = new JScrollPane(cvArea);
-        scrollCv.setBorder(BorderFactory.createLineBorder(new Color(71, 85, 105)));
-        gbc.gridy++;
-        glassContainer.add(scrollCv, gbc);
+        // Ligne 2 : Filtres (SANS ENTREPRISE)
+        JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0));
+        filterRow.setOpaque(false);
 
-        JButton matchBtn = createGradientButton("Run Neural Matching", ACCENT_PURPLE, new Color(192, 38, 211));
-        matchBtn.addActionListener(e -> runMatching());
-        gbc.gridy++; gbc.insets = new Insets(15, 20, 20, 20);
-        glassContainer.add(matchBtn, gbc);
+        JLabel lblFilter = new JLabel("Filtrer par :");
+        lblFilter.setForeground(TEXT_SECONDARY);
+        lblFilter.setFont(new Font("Segoe UI", Font.BOLD, 12));
 
-        sidebar.add(glassContainer, BorderLayout.CENTER);
-        return sidebar;
+        comboCategory = createStyledComboBox("Toutes les Catégories");
+        comboCity = createStyledComboBox("Toutes les Villes");
+
+        JButton btnApplyFilter = createButton("Appliquer", ACCENT_BLUE);
+        btnApplyFilter.setPreferredSize(new Dimension(120, 35));
+        btnApplyFilter.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        btnApplyFilter.addActionListener(e -> applyFilters());
+
+        JButton btnReset = createButton("↺", BUTTON_INACTIVE);
+        btnReset.setPreferredSize(new Dimension(40, 35));
+        btnReset.addActionListener(e -> resetFilters());
+
+        filterRow.add(lblFilter);
+        filterRow.add(comboCategory);
+        filterRow.add(comboCity);
+        filterRow.add(btnApplyFilter);
+        filterRow.add(btnReset);
+
+        header.add(topRow, BorderLayout.NORTH);
+        header.add(filterRow, BorderLayout.CENTER);
+
+        return header;
     }
 
-    private JPanel createDashboard() {
-        JPanel dashboard = new JPanel(new BorderLayout());
-        dashboard.setOpaque(false);
-        dashboard.setBorder(new EmptyBorder(30, 0, 30, 30));
+    // --- CANDIDATE PANEL ---
+    private JPanel createCandidatePanel() {
+        JPanel panel = new RoundedPanel(15, PANEL_GLASS);
+        panel.setLayout(new BorderLayout(0, 15));
+        panel.setBorder(new EmptyBorder(20, 20, 20, 20));
 
-        // Header
-        JPanel header = new JPanel(new BorderLayout());
-        header.setOpaque(false);
-        JLabel title = new JLabel("Live Opportunities");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 24));
-        title.setForeground(TEXT_PRIMARY);
+        JLabel lblTitle = new JLabel("PROFIL CANDIDAT");
+        lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        lblTitle.setForeground(TEXT_SECONDARY);
+        panel.add(lblTitle, BorderLayout.NORTH);
 
-        statusLabel = new JLabel("System Ready");
-        statusLabel.setForeground(TEXT_SECONDARY);
-        statusLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        cvArea = new JTextArea();
+        cvArea.setFont(new Font("Consolas", Font.PLAIN, 13));
+        cvArea.setBackground(BG_DARK);
+        cvArea.setForeground(new Color(167, 243, 208));
+        cvArea.setCaretColor(Color.WHITE);
+        cvArea.setLineWrap(true);
+        cvArea.setWrapStyleWord(true);
+        cvArea.setText("// Importez un PDF pour visualiser le contenu extrait ici...");
 
-        progressBar = new ProgressBarCustom();
-        progressBar.setPreferredSize(new Dimension(200, 4));
-        progressBar.setVisible(false);
+        JScrollPane scroll = new JScrollPane(cvArea);
+        scroll.setBorder(new LineBorder(new Color(71, 85, 105)));
+        panel.add(scroll, BorderLayout.CENTER);
 
-        header.add(title, BorderLayout.WEST);
-        header.add(statusLabel, BorderLayout.EAST);
-        header.add(progressBar, BorderLayout.SOUTH);
+        JPanel actions = new JPanel(new GridLayout(1, 2, 10, 0));
+        actions.setOpaque(false);
 
-        // Table / Cards
-        String[] cols = {"Data"};
-        tableModel = new DefaultTableModel(cols, 0) {
-            @Override public boolean isCellEditable(int row, int column) { return false; }
+        // Bouton Import
+        btnImport = createButton("📂 Importer PDF", ACCENT_BLUE);
+        btnImport.setPreferredSize(new Dimension(0, 50));
+        btnImport.addActionListener(e -> importPDF());
+
+        // Bouton Match
+        btnMatch = createButton("⚡ Lancer Matching", BUTTON_INACTIVE);
+        btnMatch.setEnabled(false);
+        btnMatch.setForeground(new Color(165, 180, 252));
+        btnMatch.setPreferredSize(new Dimension(0, 50));
+        btnMatch.addActionListener(e -> runMatching());
+
+        actions.add(btnImport);
+        actions.add(btnMatch);
+        panel.add(actions, BorderLayout.SOUTH);
+
+        return panel;
+    }
+
+    // --- RESULTS PANEL ---
+    private JPanel createResultsPanel() {
+        JPanel panel = new RoundedPanel(15, PANEL_GLASS);
+        panel.setLayout(new BorderLayout(0, 10));
+        panel.setBorder(new EmptyBorder(20, 20, 20, 20));
+
+        JLabel lblTitle = new JLabel("OPPORTUNITÉS CIBLÉES");
+        lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        lblTitle.setForeground(TEXT_SECONDARY);
+        panel.add(lblTitle, BorderLayout.NORTH);
+
+        tableModel = new DefaultTableModel(new String[]{"Offre"}, 0) {
+            @Override public boolean isCellEditable(int row, int col) { return false; }
         };
 
         resultsTable = new JTable(tableModel);
-        resultsTable.setRowHeight(110); // Card Height
+        resultsTable.setRowHeight(90);
         resultsTable.setDefaultRenderer(Object.class, new JobCardRenderer());
-        resultsTable.setTableHeader(null); // No header needed for card view
+        resultsTable.setTableHeader(null);
         resultsTable.setBackground(BG_DARK);
         resultsTable.setShowGrid(false);
-        resultsTable.setIntercellSpacing(new Dimension(0, 10));
-        resultsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        resultsTable.setIntercellSpacing(new Dimension(0, 5));
 
-        // Click Listener for URL
         resultsTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                int row = resultsTable.getSelectedRow();
-                if (row >= 0 && row < currentJobs.size()) {
-                    try {
-                        Desktop.getDesktop().browse(java.net.URI.create(currentJobs.get(row).getUrl()));
-                    } catch (Exception ex) { ex.printStackTrace(); }
+                if (e.getClickCount() == 2) {
+                    int row = resultsTable.getSelectedRow();
+                    if (row >= 0) {
+                        try {
+                            JobWrapper w = (JobWrapper) tableModel.getValueAt(row, 0);
+                            Desktop.getDesktop().browse(java.net.URI.create(w.job.getUrl()));
+                        } catch(Exception ex) {}
+                    }
                 }
             }
         });
@@ -202,46 +240,132 @@ public class MainGui extends JFrame {
         JScrollPane scroll = new JScrollPane(resultsTable);
         scroll.setBorder(null);
         scroll.getViewport().setBackground(BG_DARK);
+        panel.add(scroll, BorderLayout.CENTER);
 
-        dashboard.add(header, BorderLayout.NORTH);
-        dashboard.add(scroll, BorderLayout.CENTER);
-
-        return dashboard;
+        return panel;
     }
 
-    // ---------------- LOGIC ----------------
+    private JPanel createStatusBar() {
+        JPanel bar = new JPanel(new BorderLayout());
+        bar.setOpaque(false);
+        statusLabel = new JLabel("Système prêt.");
+        statusLabel.setForeground(TEXT_SECONDARY);
+        progressBar = new JProgressBar();
+        progressBar.setPreferredSize(new Dimension(200, 5));
+        progressBar.setForeground(ACCENT_CYAN);
+        progressBar.setBackground(BG_DARK);
+        progressBar.setBorderPainted(false);
+        progressBar.setVisible(false);
+        bar.add(statusLabel, BorderLayout.WEST);
+        bar.add(progressBar, BorderLayout.EAST);
+        return bar;
+    }
+
+    // ================= LOGIQUE MÉTIER =================
 
     private void startScraping() {
-        String keyword = searchField.getText().trim();
-        if (keyword.isEmpty()) keyword = "java";
+        String query = searchField.getText();
+        if (query.contains("Importez")) query = "java";
 
-        statusLabel.setText("Scraping active nodes...");
+        statusLabel.setText("Scan du marché en cours (" + query + ")...");
         progressBar.setVisible(true);
         progressBar.setIndeterminate(true);
 
-        String finalKeyword = keyword;
+        String finalQuery = query;
         new Thread(() -> {
-            List<Offre> rawJobs = new ArrayList<>();
-            // Rekrute
-            rawJobs.addAll(new RekruteScraper().scrape(finalKeyword));
-            // Emploi.ma
-            rawJobs.addAll(new EmploiMaScraper().scrape(finalKeyword));
+            List<Offre> jobs = new ArrayList<>();
+            try { jobs.addAll(new RekruteScraper().scrape(finalQuery)); } catch(Exception e){}
+            try { jobs.addAll(new EmploiMaScraper().scrape(finalQuery)); } catch(Exception e){}
 
-            // Save DB
-            for(Offre o : rawJobs) jobDao.saveJob(o);
+            for (Offre j : jobs) try { jobDao.saveJob(j); } catch(Exception e){}
 
-            currentJobs = rawJobs;
+            allJobs = jobs;
+            displayedJobs = new ArrayList<>(jobs);
 
             SwingUtilities.invokeLater(() -> {
-                updateTable(null); // No matching yet, just show jobs
-                statusLabel.setText("Found " + rawJobs.size() + " positions.");
-                progressBar.setIndeterminate(false);
+                populateFilters();
+                updateTable(null);
+                statusLabel.setText(jobs.size() + " offres trouvées.");
                 progressBar.setVisible(false);
             });
         }).start();
     }
 
-    // Dans ta classe MainGui
+    // --- POPULATION DES FILTRES (Catégorie & Ville uniquement) ---
+    private void populateFilters() {
+        Set<String> categories = new HashSet<>();
+        Set<String> cities = new HashSet<>();
+
+        // Mots interdits dans les villes pour nettoyer le scraping
+        String[] blacklist = {"CDI", "Salaire", "Mission", "Profil", "Bac", "Année", "Expérience"};
+
+        for (Offre j : allJobs) {
+            // Nettoyage Catégorie
+            if (isValidData(j.getCategory(), 40, blacklist))
+                categories.add(formatData(j.getCategory()));
+
+            // Nettoyage Ville
+            if (isValidData(j.getVille(), 25, blacklist))
+                cities.add(formatData(j.getVille()));
+        }
+
+        comboCategory.removeAllItems();
+        comboCategory.addItem("Toutes les Catégories");
+        categories.stream().sorted().forEach(comboCategory::addItem);
+
+        comboCity.removeAllItems();
+        comboCity.addItem("Toutes les Villes");
+        cities.stream().sorted().forEach(comboCity::addItem);
+    }
+
+    // --- Helpers de Nettoyage ---
+    private boolean isValidData(String text, int maxLength, String[] blacklist) {
+        if (text == null || text.trim().isEmpty()) return false;
+        if (text.length() > maxLength) return false; // Rejette les phrases trop longues
+
+        for (String badWord : blacklist) {
+            if (text.toLowerCase().contains(badWord.toLowerCase())) return false;
+        }
+        return true;
+    }
+
+    private String formatData(String text) {
+        String clean = text.trim().toLowerCase();
+        if (clean.isEmpty()) return "";
+        return clean.substring(0, 1).toUpperCase() + clean.substring(1);
+    }
+
+    // --- APPLICATION DES FILTRES ---
+    private void applyFilters() {
+        String selectedCat = (String) comboCategory.getSelectedItem();
+        String selectedCity = (String) comboCity.getSelectedItem();
+
+        if (selectedCat == null || selectedCity == null) return;
+
+        displayedJobs = allJobs.stream()
+                .filter(j -> {
+                    String jCat = formatData(j.getCategory() == null ? "" : j.getCategory());
+                    String jCity = formatData(j.getVille() == null ? "" : j.getVille());
+
+                    boolean matchCat = selectedCat.equals("Toutes les Catégories") || selectedCat.equals(jCat);
+                    boolean matchCity = selectedCity.equals("Toutes les Villes") || selectedCity.equals(jCity);
+
+                    return matchCat && matchCity;
+                })
+                .collect(Collectors.toList());
+
+        String currentCv = cvArea.getText();
+        if(currentCv.startsWith("//")) currentCv = null;
+        updateTable(currentCv);
+        statusLabel.setText(displayedJobs.size() + " offres filtrées.");
+    }
+
+    private void resetFilters() {
+        comboCategory.setSelectedIndex(0);
+        comboCity.setSelectedIndex(0);
+        displayedJobs = new ArrayList<>(allJobs);
+        applyFilters();
+    }
 
     private void importPDF() {
         JFileChooser chooser = new JFileChooser();
@@ -249,30 +373,27 @@ public class MainGui extends JFrame {
             File f = chooser.getSelectedFile();
             try (PDDocument doc = Loader.loadPDF(f)) {
                 PDFTextStripper stripper = new PDFTextStripper();
-                String fullText = stripper.getText(doc);
+                String text = stripper.getText(doc);
+                cvArea.setText(text.trim());
+                cvArea.setCaretPosition(0);
 
-                // 1. Afficher le texte extrait
-                cvArea.setText(fullText.trim());
+                String predictedQuery = smartParser.extractSearchQuery(text);
+                searchField.setText(predictedQuery);
 
-                // 2. --- NLP MAGIC ---
-                // On demande au parser de deviner le job
-                String aiGeneratedQuery = smartParser.extractSearchQuery(fullText);
+                // ACTIVATION BOUTON MATCH (Violet Vif)
+                btnMatch.setEnabled(true);
+                btnMatch.setBackground(ACCENT_PURPLE);
+                btnMatch.setForeground(Color.WHITE);
+                btnMatch.setText("⚡ Matcher : " + predictedQuery);
 
-                // 3. Mise à jour automatique de l'interface
-                searchField.setText(aiGeneratedQuery);
-                statusLabel.setText("CV Analysé. Profil détecté : " + aiGeneratedQuery);
+                statusLabel.setText("CV importé. Profil détecté : " + predictedQuery);
 
-                // 4. (Optionnel) Déclencher le scraping automatiquement ?
-                int response = JOptionPane.showConfirmDialog(this,
-                        "L'IA a détecté le profil : '" + aiGeneratedQuery + "'.\nLancer la recherche maintenant ?",
-                        "Analyse NLP Terminée", JOptionPane.YES_NO_OPTION);
-
-                if(response == JOptionPane.YES_OPTION) {
-                    startScraping(); // Boum ! Tout est automatique.
-                }
+                int choice = JOptionPane.showConfirmDialog(this,
+                        "Profil : " + predictedQuery + ".\nLancer la recherche ?",
+                        "Assistant IA", JOptionPane.YES_NO_OPTION);
+                if (choice == JOptionPane.YES_OPTION) startScraping();
 
             } catch (Exception e) {
-                e.printStackTrace();
                 JOptionPane.showMessageDialog(this, "Erreur lecture PDF");
             }
         }
@@ -280,36 +401,22 @@ public class MainGui extends JFrame {
 
     private void runMatching() {
         String cvText = cvArea.getText();
-        if (cvText.length() < 10) {
-            JOptionPane.showMessageDialog(this, "Please enter a valid CV first.");
-            return;
-        }
+        if (cvText.startsWith("//")) return;
 
-        statusLabel.setText("Running Neural Matcher...");
+        statusLabel.setText("Matching en cours sur la sélection...");
         progressBar.setVisible(true);
         progressBar.setIndeterminate(true);
 
         new Thread(() -> {
-            String cleanCv = cvParser.parseAndRegroup(cvText);
-            // Save Candidate
-            int cvId = cvDao.saveCV("Unknown Candidate", "user@app.com", cvText, cleanCv);
-
-            // Sort jobs by score
-            currentJobs.sort((j1, j2) -> {
-                double s1 = matcher.calculateScore(cleanCv, j1.getFullText());
-                double s2 = matcher.calculateScore(cleanCv, j2.getFullText());
-                return Double.compare(s2, s1); // Descending
+            displayedJobs.sort((j1, j2) -> {
+                int s1 = neuralMatcher.calculateMatchScore(cvText, j1.getFullText());
+                int s2 = neuralMatcher.calculateMatchScore(cvText, j2.getFullText());
+                return Integer.compare(s2, s1);
             });
 
-            // Save matches > 10%
-            for(Offre j : currentJobs) {
-                double score = matcher.calculateScore(cleanCv, j.getFullText());
-                if(score > 10) jobDao.saveMatch(cvId, j.getUrl(), score);
-            }
-
             SwingUtilities.invokeLater(() -> {
-                updateTable(cleanCv);
-                statusLabel.setText("Matching Complete. Top candidates surfaced.");
+                updateTable(cvText);
+                statusLabel.setText("Top candidats affichés.");
                 progressBar.setVisible(false);
             });
         }).start();
@@ -317,211 +424,96 @@ public class MainGui extends JFrame {
 
     private void updateTable(String cvText) {
         tableModel.setRowCount(0);
-        for (Offre job : currentJobs) {
-            double score = 0.0;
-            if (cvText != null) {
-                score = matcher.calculateScore(cvText, job.getFullText());
+        for (Offre job : displayedJobs) {
+            double score = 0;
+            if (cvText != null && !cvText.startsWith("//")) {
+                score = neuralMatcher.calculateMatchScore(cvText, job.getFullText());
             }
-            // Add Object wrapper to let Renderer handle it
             tableModel.addRow(new Object[]{ new JobWrapper(job, score) });
         }
     }
 
-    // ---------------- CUSTOM COMPONENTS & RENDERERS ----------------
+    // ================= DESIGN HELPERS =================
 
-    // Wrapper to hold data for the renderer
+    private void setupTheme() {
+        try {
+            UIManager.setLookAndFeel(new FlatDarkLaf());
+            UIManager.put("Component.arc", 12);
+            UIManager.put("Button.arc", 12);
+            UIManager.put("ComboBox.selectionBackground", new Color(40, 55, 75));
+            UIManager.put("ComboBox.background", BG_DARK);
+            UIManager.put("ComboBox.foreground", Color.WHITE);
+            UIManager.put("ComboBox.borderColor", new Color(71, 85, 105));
+        } catch (Exception e) {}
+    }
+
+    private JComboBox<String> createStyledComboBox(String firstItem) {
+        JComboBox<String> box = new JComboBox<>();
+        box.addItem(firstItem);
+        box.setPreferredSize(new Dimension(180, 35));
+        box.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        return box;
+    }
+
+    private JButton createButton(String text, Color bg) {
+        JButton btn = new JButton(text);
+        btn.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        btn.setBackground(bg);
+        btn.setForeground(bg == Color.WHITE ? BG_DARK : Color.WHITE);
+        btn.setFocusPainted(false);
+        btn.setBorderPainted(false);
+        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        return btn;
+    }
+
     record JobWrapper(Offre job, double score) {}
 
     class JobCardRenderer implements TableCellRenderer {
         @Override
-        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            JobWrapper data = (JobWrapper) value;
-            Offre job = data.job;
-
-            JPanel card = new RoundedPanel(15, PANEL_GLASS);
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSel, boolean hasFocus, int row, int col) {
+            JobWrapper w = (JobWrapper) value;
+            JPanel card = new RoundedPanel(10, isSel ? new Color(40, 55, 75) : new Color(30, 41, 59));
             card.setLayout(new BorderLayout(15, 0));
-            card.setBorder(new EmptyBorder(15, 20, 15, 20));
+            card.setBorder(new EmptyBorder(10, 15, 10, 15));
 
-            // Left: Score Indicator
-            JPanel scorePanel = new JPanel() {
-                @Override
-                protected void paintComponent(Graphics g) {
-                    super.paintComponent(g);
-                    Graphics2D g2 = (Graphics2D) g;
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            JLabel lblScore = new JLabel(String.format("%.0f%%", w.score));
+            lblScore.setFont(new Font("Segoe UI", Font.BOLD, 18));
+            Color scoreColor = w.score > 60 ? new Color(16, 185, 129) : (w.score > 20 ? new Color(245, 158, 11) : Color.GRAY);
+            lblScore.setForeground(scoreColor);
+            lblScore.setPreferredSize(new Dimension(60, 0));
+            lblScore.setHorizontalAlignment(SwingConstants.CENTER);
 
-                    // Dynamic Color based on score
-                    Color c = data.score > 70 ? Color.decode("#10B981") : (data.score > 40 ? Color.decode("#F59E0B") : Color.decode("#64748B"));
-
-                    g2.setColor(new Color(30, 41, 59));
-                    g2.fillOval(0,0, 60, 60);
-                    g2.setColor(c);
-                    g2.setStroke(new BasicStroke(4));
-                    g2.drawArc(5, 5, 50, 50, 90, -(int)(data.score * 3.6));
-
-                    g2.setColor(Color.WHITE);
-                    g2.setFont(new Font("Segoe UI", Font.BOLD, 14));
-                    String s = String.format("%.0f", data.score);
-                    FontMetrics fm = g2.getFontMetrics();
-                    g2.drawString(s, 30 - fm.stringWidth(s)/2, 35);
-                }
-            };
-            scorePanel.setPreferredSize(new Dimension(65, 60));
-            scorePanel.setOpaque(false);
-
-            // Center: Info
-            JPanel infoPanel = new JPanel(new GridLayout(3, 1));
-            infoPanel.setOpaque(false);
-
-            JLabel title = new JLabel(job.getTitre());
-            title.setFont(new Font("Segoe UI", Font.BOLD, 16));
+            JPanel info = new JPanel(new GridLayout(2, 1));
+            info.setOpaque(false);
+            JLabel title = new JLabel(w.job.getTitre());
+            title.setFont(new Font("Segoe UI", Font.BOLD, 15));
             title.setForeground(Color.WHITE);
+            JLabel details = new JLabel(w.job.getEntreprise() + " - " + w.job.getVille());
+            details.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+            details.setForeground(TEXT_SECONDARY);
+            info.add(title);
+            info.add(details);
 
-            JLabel company = new JLabel(job.getEntreprise() + "  •  " + job.getVille());
-            company.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-            company.setForeground(TEXT_SECONDARY);
+            card.add(lblScore, BorderLayout.WEST);
+            card.add(info, BorderLayout.CENTER);
 
-            JLabel cat = new JLabel(job.getCategory());
-            cat.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            cat.setForeground(ACCENT_CYAN);
-
-            infoPanel.add(title);
-            infoPanel.add(company);
-            infoPanel.add(cat);
-
-            // Right: Arrow
-            JLabel arrow = new JLabel("➜");
-            arrow.setFont(new Font("Segoe UI", Font.BOLD, 20));
-            arrow.setForeground(isSelected ? ACCENT_CYAN : new Color(71, 85, 105));
-
-            card.add(scorePanel, BorderLayout.WEST);
-            card.add(infoPanel, BorderLayout.CENTER);
-            card.add(arrow, BorderLayout.EAST);
-
-            // Selection Highlight
-            if(isSelected) {
-                card.setBackground(new Color(30, 41, 59)); // Lighter when selected
-                card.setBorder(BorderFactory.createCompoundBorder(
-                        BorderFactory.createLineBorder(ACCENT_CYAN, 1),
-                        new EmptyBorder(14, 19, 14, 19)
-                ));
-            }
-
-            // Margin for spacing between rows
-            JPanel container = new JPanel(new BorderLayout());
-            container.setOpaque(false);
-            container.add(card, BorderLayout.CENTER);
-            container.setBorder(new EmptyBorder(0, 0, 10, 0)); // Bottom margin
-
-            return container;
+            JPanel wrapper = new JPanel(new BorderLayout());
+            wrapper.setOpaque(false);
+            wrapper.add(card, BorderLayout.CENTER);
+            wrapper.setBorder(new EmptyBorder(0, 0, 5, 0));
+            return wrapper;
         }
     }
 
-    // Helper: Styled Text Field
-    private JTextField createStyledTextField(String placeholder) {
-        JTextField field = new JTextField(placeholder) {
-            @Override protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                if(getText().isEmpty() && !hasFocus()) {
-                    Graphics2D g2 = (Graphics2D)g;
-                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    g2.setColor(new Color(100, 116, 139));
-                    g2.drawString(placeholder, getInsets().left, g.getFontMetrics().getAscent() + getInsets().top);
-                }
-            }
-        };
-        field.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        field.setForeground(Color.WHITE);
-        field.setBackground(new Color(15, 23, 42)); // Dark input
-        field.setCaretColor(ACCENT_CYAN);
-        field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(71, 85, 105)),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-        return field;
-    }
-
-    // Helper: Gradient Button
-    private JButton createGradientButton(String text, Color c1, Color c2) {
-        JButton btn = new JButton(text) {
-            @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g;
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                GradientPaint gp = new GradientPaint(0, 0, c1, getWidth(), 0, c2);
-                g2.setPaint(gp);
-                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 15, 15);
-                super.paintComponent(g);
-            }
-        };
-        btn.setOpaque(false);
-        btn.setContentAreaFilled(false);
-        btn.setBorderPainted(false);
-        btn.setForeground(Color.WHITE);
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        btn.setPreferredSize(new Dimension(0, 45));
-        return btn;
-    }
-
-    private JButton createOutlinedButton(String text) {
-        JButton btn = new JButton(text);
-        btn.setForeground(ACCENT_CYAN);
-        btn.setBackground(null);
-        btn.setOpaque(false);
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 13));
-        btn.setBorder(BorderFactory.createLineBorder(ACCENT_CYAN));
-        btn.setPreferredSize(new Dimension(0, 35));
-        btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        return btn;
-    }
-
-    private JLabel createLabel(String text) {
-        JLabel l = new JLabel(text);
-        l.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        l.setForeground(new Color(148, 163, 184)); // Slate 400
-        l.setBorder(new EmptyBorder(0, 2, 0, 0));
-        return l;
-    }
-
-    // Custom Rounded Panel
     static class RoundedPanel extends JPanel {
-        private int radius;
-        private Color bgColor;
-        public RoundedPanel(int radius, Color bgColor) {
-            this.radius = radius;
-            this.bgColor = bgColor;
-            setOpaque(false);
-        }
-        @Override
+        private int r; private Color c;
+        public RoundedPanel(int r, Color c) { this.r=r; this.c=c; setOpaque(false); }
         protected void paintComponent(Graphics g) {
-            Graphics2D g2 = (Graphics2D) g;
+            Graphics2D g2 = (Graphics2D)g;
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            g2.setColor(bgColor);
-            g2.fillRoundRect(0, 0, getWidth(), getHeight(), radius, radius);
+            g2.setColor(c);
+            g2.fillRoundRect(0,0,getWidth(),getHeight(),r,r);
             super.paintComponent(g);
-        }
-    }
-
-    // Simple thin progress bar
-    static class ProgressBarCustom extends JProgressBar {
-        public ProgressBarCustom() {
-            setUI(new javax.swing.plaf.basic.BasicProgressBarUI() {
-                @Override protected void paintDeterminate(Graphics g, JComponent c) {}
-                @Override protected void paintIndeterminate(Graphics g, JComponent c) {
-                    Graphics2D g2 = (Graphics2D) g;
-                    g2.setColor(new Color(6, 182, 212)); // Cyan
-                    int w = c.getWidth();
-                    int h = c.getHeight();
-                    // Simple infinite slide animation simulation
-                    long time = System.currentTimeMillis();
-                    int x = (int)((time % 2000) / 2000.0 * w);
-                    g2.fillRect(x, 0, w/4, h);
-                    g2.fillRect(x - w, 0, w/4, h);
-                }
-            });
-            setBackground(new Color(30, 41, 59));
-            setBorderPainted(false);
         }
     }
 
