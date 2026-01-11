@@ -1,13 +1,13 @@
 package com.jobapp.main;
 
 import com.formdev.flatlaf.FlatDarkLaf;
-import com.jobapp.dao.CVDAO;
 import com.jobapp.dao.JobDAO;
-import com.jobapp.service.NeuralMatchingEngine;
 import com.jobapp.ml.SmartCVParser;
 import com.jobapp.model.Offre;
 import com.jobapp.scraping.EmploiMaScraper;
+import com.jobapp.scraping.MarocAnnoncesScraper;
 import com.jobapp.scraping.RekruteScraper;
+import com.jobapp.service.NeuralMatchingEngine;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 
 public class MainGui extends JFrame {
 
-    // --- COULEURS ---
+    // --- COLORS ---
     private final Color BG_DARK = new Color(15, 23, 42);
     private final Color PANEL_GLASS = new Color(30, 41, 59, 255);
     private final Color ACCENT_CYAN = new Color(6, 182, 212);
@@ -39,28 +39,28 @@ public class MainGui extends JFrame {
     private final Color BUTTON_INACTIVE = new Color(67, 56, 202);
     private final Color TEXT_SECONDARY = new Color(148, 163, 184);
 
-    // Composants UI
+    // Components
     private JTextField searchField;
     private JTextArea cvArea;
     private DefaultTableModel tableModel;
     private JTable resultsTable;
     private JLabel statusLabel;
     private JProgressBar progressBar;
-
-    private JButton btnImport;
     private JButton btnMatch;
 
-    // Filtres (On garde seulement Catégorie et Ville)
+    // Filter Components
     private JComboBox<String> comboCategory;
     private JComboBox<String> comboCity;
 
-    // Backend
+    // Backend Services
     private final JobDAO jobDao = new JobDAO();
     private final NeuralMatchingEngine neuralMatcher = new NeuralMatchingEngine();
     private final SmartCVParser smartParser = new SmartCVParser();
 
+    // Data State
     private List<Offre> allJobs = new ArrayList<>();
     private List<Offre> displayedJobs = new ArrayList<>();
+    private String currentCVText = null; // Holds the uploaded CV text
 
     public MainGui() {
         setupTheme();
@@ -74,15 +74,41 @@ public class MainGui extends JFrame {
         mainPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
         setContentPane(mainPanel);
 
+        // 1. Top Section
         mainPanel.add(createTopBar(), BorderLayout.NORTH);
 
+        // 2. Middle Section (Split View)
         JPanel contentPanel = new JPanel(new GridLayout(1, 2, 20, 0));
         contentPanel.setOpaque(false);
         contentPanel.add(createCandidatePanel());
         contentPanel.add(createResultsPanel());
-
         mainPanel.add(contentPanel, BorderLayout.CENTER);
+
+        // 3. Bottom Section
         mainPanel.add(createStatusBar(), BorderLayout.SOUTH);
+
+        // 4. AUTO-LOAD DATA ON STARTUP
+        loadJobsFromDb();
+    }
+
+    // --- INITIAL DATA LOADING ---
+    private void loadJobsFromDb() {
+        new Thread(() -> {
+            // Ensure you added getAllJobs() to JobDAO as discussed previously!
+            List<Offre> savedJobs = jobDao.getAllJobs();
+
+            SwingUtilities.invokeLater(() -> {
+                if (!savedJobs.isEmpty()) {
+                    allJobs = savedJobs;
+                    displayedJobs = new ArrayList<>(savedJobs);
+                    populateFilters();
+                    updateTable(null); // Show jobs with 0% score initially
+                    statusLabel.setText("Loaded " + allJobs.size() + " jobs from database.");
+                } else {
+                    statusLabel.setText("Database empty. Please click 'Synchroniser Marché'.");
+                }
+            });
+        }).start();
     }
 
     // --- TOP BAR ---
@@ -92,7 +118,7 @@ public class MainGui extends JFrame {
         header.setBorder(new EmptyBorder(15, 20, 15, 20));
         header.setPreferredSize(new Dimension(0, 120));
 
-        // Ligne 1 : Logo + Recherche
+        // Row 1: Logo + Search
         JPanel topRow = new JPanel(new BorderLayout(20, 0));
         topRow.setOpaque(false);
 
@@ -121,7 +147,7 @@ public class MainGui extends JFrame {
         topRow.add(logo, BorderLayout.WEST);
         topRow.add(searchContainer, BorderLayout.CENTER);
 
-        // Ligne 2 : Filtres (SANS ENTREPRISE)
+        // Row 2: Filters
         JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 0));
         filterRow.setOpaque(false);
 
@@ -171,7 +197,7 @@ public class MainGui extends JFrame {
         cvArea.setCaretColor(Color.WHITE);
         cvArea.setLineWrap(true);
         cvArea.setWrapStyleWord(true);
-        cvArea.setText("// Importez un PDF pour visualiser le contenu extrait ici...");
+        cvArea.setText("// Importez un PDF pour commencer le matching...");
 
         JScrollPane scroll = new JScrollPane(cvArea);
         scroll.setBorder(new LineBorder(new Color(71, 85, 105)));
@@ -180,13 +206,11 @@ public class MainGui extends JFrame {
         JPanel actions = new JPanel(new GridLayout(1, 2, 10, 0));
         actions.setOpaque(false);
 
-        // Bouton Import
-        btnImport = createButton("📂 Importer PDF", ACCENT_BLUE);
+        JButton btnImport = createButton("📂 Importer PDF", ACCENT_BLUE);
         btnImport.setPreferredSize(new Dimension(0, 50));
         btnImport.addActionListener(e -> importPDF());
 
-        // Bouton Match
-        btnMatch = createButton("⚡ Lancer Matching", BUTTON_INACTIVE);
+        btnMatch = createButton("⚡ Recalculer Match", BUTTON_INACTIVE);
         btnMatch.setEnabled(false);
         btnMatch.setForeground(new Color(165, 180, 252));
         btnMatch.setPreferredSize(new Dimension(0, 50));
@@ -261,50 +285,54 @@ public class MainGui extends JFrame {
         return bar;
     }
 
-    // ================= LOGIQUE MÉTIER =================
+    // ================= BUSINESS LOGIC =================
 
     private void startScraping() {
         String query = searchField.getText();
-        if (query.contains("Importez")) query = "java";
+        if (query.contains("Importez")) query = ""; // Scraping global
 
-        statusLabel.setText("Scan du marché en cours (" + query + ")...");
+        statusLabel.setText("Scan du marché en cours...");
         progressBar.setVisible(true);
         progressBar.setIndeterminate(true);
 
         String finalQuery = query;
         new Thread(() -> {
             List<Offre> jobs = new ArrayList<>();
+            // Robot 1
             try { jobs.addAll(new RekruteScraper().scrape(finalQuery)); } catch(Exception e){}
+            // Robot 2
             try { jobs.addAll(new EmploiMaScraper().scrape(finalQuery)); } catch(Exception e){}
+            // Robot 3
+            try { jobs.addAll(new MarocAnnoncesScraper().scrape(finalQuery)); } catch(Exception e){}
 
+            // Save new jobs
             for (Offre j : jobs) try { jobDao.saveJob(j); } catch(Exception e){}
 
-            allJobs = jobs;
-            displayedJobs = new ArrayList<>(jobs);
+            // Reload FULL list from DB to include history
+            List<Offre> totalJobs = jobDao.getAllJobs();
 
             SwingUtilities.invokeLater(() -> {
+                this.allJobs = totalJobs;
+                this.displayedJobs = new ArrayList<>(totalJobs);
                 populateFilters();
-                updateTable(null);
-                statusLabel.setText(jobs.size() + " offres trouvées.");
+
+                // Keep the current match scores if a CV is already uploaded
+                updateTable(this.currentCVText);
+
+                statusLabel.setText("Sync terminée. " + totalJobs.size() + " offres en base.");
                 progressBar.setVisible(false);
             });
         }).start();
     }
 
-    // --- POPULATION DES FILTRES (Catégorie & Ville uniquement) ---
     private void populateFilters() {
         Set<String> categories = new HashSet<>();
         Set<String> cities = new HashSet<>();
-
-        // Mots interdits dans les villes pour nettoyer le scraping
         String[] blacklist = {"CDI", "Salaire", "Mission", "Profil", "Bac", "Année", "Expérience"};
 
         for (Offre j : allJobs) {
-            // Nettoyage Catégorie
             if (isValidData(j.getCategory(), 40, blacklist))
                 categories.add(formatData(j.getCategory()));
-
-            // Nettoyage Ville
             if (isValidData(j.getVille(), 25, blacklist))
                 cities.add(formatData(j.getVille()));
         }
@@ -318,11 +346,9 @@ public class MainGui extends JFrame {
         cities.stream().sorted().forEach(comboCity::addItem);
     }
 
-    // --- Helpers de Nettoyage ---
     private boolean isValidData(String text, int maxLength, String[] blacklist) {
         if (text == null || text.trim().isEmpty()) return false;
-        if (text.length() > maxLength) return false; // Rejette les phrases trop longues
-
+        if (text.length() > maxLength) return false;
         for (String badWord : blacklist) {
             if (text.toLowerCase().contains(badWord.toLowerCase())) return false;
         }
@@ -335,28 +361,22 @@ public class MainGui extends JFrame {
         return clean.substring(0, 1).toUpperCase() + clean.substring(1);
     }
 
-    // --- APPLICATION DES FILTRES ---
     private void applyFilters() {
         String selectedCat = (String) comboCategory.getSelectedItem();
         String selectedCity = (String) comboCity.getSelectedItem();
-
         if (selectedCat == null || selectedCity == null) return;
 
         displayedJobs = allJobs.stream()
                 .filter(j -> {
                     String jCat = formatData(j.getCategory() == null ? "" : j.getCategory());
                     String jCity = formatData(j.getVille() == null ? "" : j.getVille());
-
                     boolean matchCat = selectedCat.equals("Toutes les Catégories") || selectedCat.equals(jCat);
                     boolean matchCity = selectedCity.equals("Toutes les Villes") || selectedCity.equals(jCity);
-
                     return matchCat && matchCity;
                 })
                 .collect(Collectors.toList());
 
-        String currentCv = cvArea.getText();
-        if(currentCv.startsWith("//")) currentCv = null;
-        updateTable(currentCv);
+        updateTable(this.currentCVText);
         statusLabel.setText(displayedJobs.size() + " offres filtrées.");
     }
 
@@ -367,6 +387,7 @@ public class MainGui extends JFrame {
         applyFilters();
     }
 
+    // --- IMPORT PDF (This updates scores instantly) ---
     private void importPDF() {
         JFileChooser chooser = new JFileChooser();
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
@@ -374,24 +395,28 @@ public class MainGui extends JFrame {
             try (PDDocument doc = Loader.loadPDF(f)) {
                 PDFTextStripper stripper = new PDFTextStripper();
                 String text = stripper.getText(doc);
+
+                // 1. Update UI
                 cvArea.setText(text.trim());
                 cvArea.setCaretPosition(0);
 
+                // 2. Save text for matching
+                this.currentCVText = text;
+
+                // 3. NLP Prediction
                 String predictedQuery = smartParser.extractSearchQuery(text);
                 searchField.setText(predictedQuery);
 
-                // ACTIVATION BOUTON MATCH (Violet Vif)
+                // 4. Update Controls
                 btnMatch.setEnabled(true);
                 btnMatch.setBackground(ACCENT_PURPLE);
                 btnMatch.setForeground(Color.WHITE);
                 btnMatch.setText("⚡ Matcher : " + predictedQuery);
 
-                statusLabel.setText("CV importé. Profil détecté : " + predictedQuery);
+                statusLabel.setText("CV importé. Calcul des scores en cours...");
 
-                int choice = JOptionPane.showConfirmDialog(this,
-                        "Profil : " + predictedQuery + ".\nLancer la recherche ?",
-                        "Assistant IA", JOptionPane.YES_NO_OPTION);
-                if (choice == JOptionPane.YES_OPTION) startScraping();
+                // 5. RUN MATCHING IMMEDIATELY
+                runMatching();
 
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(this, "Erreur lecture PDF");
@@ -400,22 +425,22 @@ public class MainGui extends JFrame {
     }
 
     private void runMatching() {
-        String cvText = cvArea.getText();
-        if (cvText.startsWith("//")) return;
+        if (currentCVText == null || currentCVText.startsWith("//")) return;
 
-        statusLabel.setText("Matching en cours sur la sélection...");
+        statusLabel.setText("Optimisation de l'algorithme neuronal...");
         progressBar.setVisible(true);
         progressBar.setIndeterminate(true);
 
         new Thread(() -> {
+            // Sort the DISPLAYED jobs (so filtering is respected)
             displayedJobs.sort((j1, j2) -> {
-                int s1 = neuralMatcher.calculateMatchScore(cvText, j1.getFullText());
-                int s2 = neuralMatcher.calculateMatchScore(cvText, j2.getFullText());
+                int s1 = neuralMatcher.calculateMatchScore(currentCVText, j1.getFullText());
+                int s2 = neuralMatcher.calculateMatchScore(currentCVText, j2.getFullText());
                 return Integer.compare(s2, s1);
             });
 
             SwingUtilities.invokeLater(() -> {
-                updateTable(cvText);
+                updateTable(currentCVText);
                 statusLabel.setText("Top candidats affichés.");
                 progressBar.setVisible(false);
             });
@@ -426,6 +451,7 @@ public class MainGui extends JFrame {
         tableModel.setRowCount(0);
         for (Offre job : displayedJobs) {
             double score = 0;
+            // Only calculate score if we have a valid CV
             if (cvText != null && !cvText.startsWith("//")) {
                 score = neuralMatcher.calculateMatchScore(cvText, job.getFullText());
             }
@@ -433,7 +459,7 @@ public class MainGui extends JFrame {
         }
     }
 
-    // ================= DESIGN HELPERS =================
+    // ================= UI HELPERS =================
 
     private void setupTheme() {
         try {
@@ -476,7 +502,8 @@ public class MainGui extends JFrame {
             card.setLayout(new BorderLayout(15, 0));
             card.setBorder(new EmptyBorder(10, 15, 10, 15));
 
-            JLabel lblScore = new JLabel(String.format("%.0f%%", w.score));
+            // Show score only if > 0
+            JLabel lblScore = new JLabel(w.score > 0 ? String.format("%.0f%%", w.score) : "--");
             lblScore.setFont(new Font("Segoe UI", Font.BOLD, 18));
             Color scoreColor = w.score > 60 ? new Color(16, 185, 129) : (w.score > 20 ? new Color(245, 158, 11) : Color.GRAY);
             lblScore.setForeground(scoreColor);

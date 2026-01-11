@@ -2,42 +2,57 @@ package com.jobapp.dao;
 
 import com.jobapp.model.Offre;
 import java.sql.*;
+import java.util.ArrayList; // <--- WAS MISSING
+import java.util.List;      // <--- WAS MISSING
 
 public class JobDAO {
     private static final String URL = "jdbc:mysql://localhost:3308/job_portal_db"; // Check your port
     private static final String USER = "root";
     private static final String PASSWORD = "";
 
-    // METHOD A: Only saves the Job (Independent of any user)
+    // 1. Save Job
+    // 1. Save Job (Safe Version)
     public void saveJob(Offre job) {
-        // FIX: We added 'ville=VALUES(ville)' and 'entreprise=VALUES(entreprise)'
         String sql = "INSERT INTO offres (titre, description, entreprise, ville, url, category) " +
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE " +
                 "description=VALUES(description), " +
                 "category=VALUES(category), " +
-                "ville=VALUES(ville), " +             // <--- CRITICAL FIX
-                "entreprise=VALUES(entreprise), " +    // <--- CRITICAL FIX
+                "ville=VALUES(ville), " +
+                "entreprise=VALUES(entreprise), " +
                 "date_scrapped=CURRENT_TIMESTAMP";
 
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setString(1, job.getTitre());
-            ps.setString(2, job.getDescription());
-            ps.setString(3, job.getEntreprise());
-            ps.setString(4, job.getVille());
+            // --- SAFETY CUTOFFS (Prevent "Data too long" errors) ---
+            String safeTitre = job.getTitre();
+            if (safeTitre.length() > 250) safeTitre = safeTitre.substring(0, 250);
+
+            String safeEntreprise = job.getEntreprise();
+            if (safeEntreprise.length() > 250) safeEntreprise = safeEntreprise.substring(0, 250);
+
+            String safeVille = job.getVille();
+            if (safeVille.length() > 100) safeVille = safeVille.substring(0, 100);
+            // -------------------------------------------------------
+
+            ps.setString(1, safeTitre);
+            ps.setString(2, job.getDescription()); // Description is usually TEXT, so it's fine
+            ps.setString(3, safeEntreprise);       // Uses the safe version
+            ps.setString(4, safeVille);            // Uses the safe version
             ps.setString(5, job.getUrl());
             ps.setString(6, job.getCategory());
 
             ps.executeUpdate();
-            System.out.println("[DB] Job saved: " + job.getTitre());
+            System.out.println("[DB] Job saved: " + safeTitre);
 
         } catch (SQLException e) {
             System.err.println("DB Error (saveJob): " + e.getMessage());
+            e.printStackTrace();
         }
     }
-    // METHOD B: Only saves the Match Result (Links a specific CV to a Job)
+
+    // 2. Save Match
     public void saveMatch(int cvId, String jobUrl, double score) {
         String sql = "INSERT INTO matching_results (cv_id, job_url, match_score) VALUES (?, ?, ?)";
 
@@ -53,6 +68,34 @@ public class JobDAO {
 
         } catch (SQLException e) {
             System.err.println("DB Error (saveMatch): " + e.getMessage());
+            e.printStackTrace(); // Fix for empty catch block
         }
+    }
+
+    // 3. Get All Jobs (Fixed)
+    public List<Offre> getAllJobs() {
+        List<Offre> jobs = new ArrayList<>();
+        String sql = "SELECT * FROM offres ORDER BY id DESC"; // Newest first
+
+        // Fixed: Use DriverManager directly instead of DatabaseConnection class
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            while (rs.next()) {
+                Offre job = new Offre(
+                        rs.getString("titre"),
+                        rs.getString("description"),
+                        rs.getString("ville"),
+                        rs.getString("entreprise"),
+                        rs.getString("url"),
+                        rs.getString("category") // <--- Fixed: 'categorie' -> 'category'
+                );
+                jobs.add(job);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return jobs;
     }
 }
