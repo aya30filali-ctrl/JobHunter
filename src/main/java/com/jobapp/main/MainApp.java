@@ -24,11 +24,11 @@ public class MainApp {
         System.out.println(">>> PHASE 1: Scraping jobs...");
         List<JobScraper> myRobots = new ArrayList<>();
         myRobots.add(new RekruteScraper());
-        // myRobots.add(new EmploiMaScraper()); // Uncomment if you want both
+        myRobots.add(new EmploiMaScraper()); // Uncomment if you want both
 
         List<Offre> allScrapedJobs = new ArrayList<>();
         for (JobScraper robot : myRobots) {
-            List<Offre> jobs = robot.scrape("java"); // Or scrape "finance", "commercial" to test more
+            List<Offre> jobs = robot.scrape(""); // Or scrape "finance", "commercial" to test more
             for (Offre job : jobs) jobDao.saveJob(job);
             allScrapedJobs.addAll(jobs);
         }
