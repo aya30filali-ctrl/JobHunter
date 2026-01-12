@@ -43,11 +43,11 @@ public class ScraperService {
                     jobDAO.saveJob(job);
                 }
             }
-            System.out.println("--- ✅ UPDATE FINISHED ---");
+            System.out.println("---  UPDATE FINISHED ---");
         };
 
         // Run every 10 SECONDS (for testing)
         // Change back to TimeUnit.HOURS when you are done testing
-        scheduler.scheduleAtFixedRate(task, 0, 10, TimeUnit.SECONDS);
+        scheduler.scheduleAtFixedRate(task, 0, 4, TimeUnit.HOURS);
     }
 }

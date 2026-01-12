@@ -2,99 +2,68 @@ package com.jobapp.main;
 
 import com.jobapp.dao.CVDAO;
 import com.jobapp.dao.JobDAO;
-import com.jobapp.service.NeuralMatchingEngine; // <--- ON UTILISE LE NOUVEAU MOTEUR
 import com.jobapp.model.Offre;
 import com.jobapp.scraping.EmploiMaScraper;
-import com.jobapp.scraping.JobScraper;
+import com.jobapp.scraping.MarocAnnoncesScraper;
 import com.jobapp.scraping.RekruteScraper;
+import com.jobapp.service.NeuralMatchingEngine;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
 
 public class MainApp {
     public static void main(String[] args) {
+        System.out.println("=== JOB HUNTER CONSOLE V2 (DB CONNECTED) ===");
+
+        // 1. Initialisation
         JobDAO jobDao = new JobDAO();
         CVDAO cvDao = new CVDAO();
+        NeuralMatchingEngine matcher = new NeuralMatchingEngine();
+        Scanner scanner = new Scanner(System.in);
 
-        // 1. Initialiser le NOUVEAU Moteur (NeuralMatchingEngine)
-        // On remplace l'ancien JobMatcher
-        NeuralMatchingEngine neuralMatcher = new NeuralMatchingEngine();
+        // 2. Scraping (ou chargement DB)
+        System.out.println("1. Lancer le scraping ? (o/n)");
+        if (scanner.nextLine().equalsIgnoreCase("o")) {
+            List<Offre> newJobs = new ArrayList<>();
+            newJobs.addAll(new RekruteScraper().scrape("informatique"));
+            newJobs.addAll(new EmploiMaScraper().scrape("informatique"));
+            newJobs.addAll(new MarocAnnoncesScraper().scrape("informatique"));
 
-        // --- PHASE 1: SCRAPING ---
-        System.out.println(">>> PHASE 1: Scraping des jobs en cours...");
-        List<JobScraper> myRobots = new ArrayList<>();
-        myRobots.add(new RekruteScraper());
-        myRobots.add(new EmploiMaScraper());
-
-        List<Offre> allScrapedJobs = new ArrayList<>();
-
-        // On lance les robots
-        for (JobScraper robot : myRobots) {
-            // Tu peux changer "" par "java" ou "finance" pour cibler mieux le test
-            try {
-                List<Offre> jobs = robot.scrape("");
-                for (Offre job : jobs) {
-                    try {
-                        jobDao.saveJob(job); // Sauvegarde sécurisée
-                    } catch (Exception e) {
-                        System.out.println("Doublon ou erreur DB ignorée.");
-                    }
-                }
-                allScrapedJobs.addAll(jobs);
-            } catch (Exception e) {
-                System.out.println("Erreur de robot : " + e.getMessage());
-            }
+            for (Offre j : newJobs) jobDao.saveJob(j);
+            System.out.println(newJobs.size() + " offres ajoutées/mises à jour.");
         }
-        System.out.println(">>> Total jobs récupérés : " + allScrapedJobs.size());
 
-        // --- PHASE 2 & 3: SIMULATION AVEC 3 PROFILS ---
+        List<Offre> allJobs = jobDao.getAllJobs();
+        System.out.println("Total offres en base : " + allJobs.size());
 
-        String[] userNames = {"Ahmed IT", "Sarah Finance", "Karim Sales"};
-        String[] rawCVs = {
-                // CV 1: Expert IT
-                "Je suis Ingénieur Informatique expert en Java, Spring Boot, SQL et React. " +
-                        "J'ai 5 ans d'expérience en développement web full stack. Passionné par le code et l'architecture logicielle.",
+        // 3. Traitement CV
+        System.out.print("Chemin du CV PDF : ");
+        String path = scanner.nextLine();
 
-                // CV 2: Finance & Audit
-                "Je suis Auditeur Financier. Expert en comptabilité, gestion de trésorerie, audit externe et finance d'entreprise. " +
-                        "Maitrise de Excel, SAP et analyse financière. Diplômé en économie.",
+        try (PDDocument doc = Loader.loadPDF(new File(path))) {
+            String text = new PDFTextStripper().getText(doc);
 
-                // CV 3: Sales / Commerce
-                "Commercial terrain dynamique. Expert en vente, négociation client, développement de portefeuille et prospection. " +
-                        "J'aime le contact client et atteindre les objectifs de vente. Secteur automobile et assurance."
-        };
+            // --- CORRECTION ICI : ON PASSE JUSTE LE TEXTE ---
+            int cvId = cvDao.saveCV(text);
+            System.out.println("CV Sauvegardé avec ID : " + cvId);
 
-        System.out.println("\n>>> PHASE 3: Analyse de Matching (Moteur Neural) <<<");
-
-        for (int i = 0; i < userNames.length; i++) {
-            String name = userNames[i];
-            String cvText = rawCVs[i];
-
-            // On simule la sauvegarde du CV
-            int cvId = 0;
-            try {
-                cvId = cvDao.saveCV(name, "test" + i + "@email.com", cvText, cvText);
-            } catch (Exception e) { System.out.println("Erreur sauvegarde CV (pas grave pour le test)"); }
-
-            System.out.println("\n--- Test pour : " + name + " ---");
-
-            // On compare ce CV avec TOUS les jobs
-            for (Offre job : allScrapedJobs) {
-
-                // *** ICI LA MAGIE OPÈRE AVEC LE NOUVEAU MOTEUR ***
-                // On utilise job.getFullText() qu'on a ajouté tout à l'heure
-                int score = neuralMatcher.calculateMatchScore(cvText, job.getFullText());
-
-                // On n'affiche que les matchs pertinents (> 10%)
-                if (score > 10) {
-                    // Sauvegarde du match en DB
-                    try { jobDao.saveMatch(cvId, job.getUrl(), score); } catch (Exception e) {}
-
-                    // Affichage console propre
-                    // On utilise %d pour le score car c'est un entier maintenant
-                    System.out.printf("   [Match: %d%%] Job: %s (Cat: %s)\n", score, job.getTitre(), job.getCategory());
+            System.out.println("\n--- RÉSULTATS DU MATCHING ---");
+            for (Offre job : allJobs) {
+                int score = matcher.calculateMatchScore(text, job.getTitre(), job.getDescription());
+                if (score > 40) {
+                    System.out.printf("[%d%%] %s (%s)\n", score, job.getTitre(), job.getEntreprise());
+                    // Sauvegarde du match
+                    jobDao.saveMatch(cvId, job.getUrl(), score);
                 }
             }
+
+        } catch (Exception e) {
+            System.err.println("Erreur : " + e.getMessage());
         }
     }
 }

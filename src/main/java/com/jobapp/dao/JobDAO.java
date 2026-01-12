@@ -2,17 +2,17 @@ package com.jobapp.dao;
 
 import com.jobapp.model.Offre;
 import java.sql.*;
-import java.util.ArrayList; // <--- WAS MISSING
-import java.util.List;      // <--- WAS MISSING
+import java.util.ArrayList;
+import java.util.List;
 
 public class JobDAO {
-    private static final String URL = "jdbc:mysql://localhost:3308/job_portal_db"; // Check your port
+    // Port 3307 conservé
+    private static final String URL = "jdbc:mysql://localhost:3307/job_portal_db";
     private static final String USER = "root";
     private static final String PASSWORD = "";
 
-    // 1. Save Job
-    // 1. Save Job (Safe Version)
-    public void saveJob(Offre job) {
+    // 1. Save Job (Sauvegarde les offres scrapées)
+    public boolean saveJob(Offre job) {
         String sql = "INSERT INTO offres (titre, description, entreprise, ville, url, category) " +
                 "VALUES (?, ?, ?, ?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE " +
@@ -25,59 +25,55 @@ public class JobDAO {
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            // --- SAFETY CUTOFFS (Prevent "Data too long" errors) ---
             String safeTitre = job.getTitre();
             if (safeTitre.length() > 250) safeTitre = safeTitre.substring(0, 250);
 
             String safeEntreprise = job.getEntreprise();
             if (safeEntreprise.length() > 250) safeEntreprise = safeEntreprise.substring(0, 250);
 
-            String safeVille = job.getVille();
-            if (safeVille.length() > 100) safeVille = safeVille.substring(0, 100);
-            // -------------------------------------------------------
-
             ps.setString(1, safeTitre);
-            ps.setString(2, job.getDescription()); // Description is usually TEXT, so it's fine
-            ps.setString(3, safeEntreprise);       // Uses the safe version
-            ps.setString(4, safeVille);            // Uses the safe version
+            ps.setString(2, job.getDescription());
+            ps.setString(3, safeEntreprise);
+            ps.setString(4, job.getVille());
             ps.setString(5, job.getUrl());
             ps.setString(6, job.getCategory());
 
-            ps.executeUpdate();
-            System.out.println("[DB] Job saved: " + safeTitre);
+            int result = ps.executeUpdate();
+
+            return result == 1;
 
         } catch (SQLException e) {
             System.err.println("DB Error (saveJob): " + e.getMessage());
-            e.printStackTrace();
+            return false;
         }
     }
 
-    // 2. Save Match
-    public void saveMatch(int cvId, String jobUrl, double score) {
-        String sql = "INSERT INTO matching_results (cv_id, job_url, match_score) VALUES (?, ?, ?)";
+    // 2. Save Match (Sauvegarde le lien CV <-> Offre <-> Score)
+    public void saveMatch(int cvId, String jobUrl, int score) {
+        // Insertion dans matching_results.
+        // La colonne 'status' prendra sa valeur par défaut (ex: NULL ou 'pending')
+        String sql = "INSERT INTO matching_results (cv_id, job_url, match_score) VALUES (?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE match_score = VALUES(match_score)";
 
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             ps.setInt(1, cvId);
             ps.setString(2, jobUrl);
-            ps.setDouble(3, score);
+            ps.setInt(3, score); // Stocké en INT comme dans votre table
 
             ps.executeUpdate();
-            System.out.println("   -> [DB] Match saved! Score: " + score + "%");
 
         } catch (SQLException e) {
             System.err.println("DB Error (saveMatch): " + e.getMessage());
-            e.printStackTrace(); // Fix for empty catch block
         }
     }
 
-    // 3. Get All Jobs (Fixed)
+    // 3. Get All Jobs (Récupération pour l'affichage)
     public List<Offre> getAllJobs() {
         List<Offre> jobs = new ArrayList<>();
-        String sql = "SELECT * FROM offres ORDER BY id DESC"; // Newest first
+        String sql = "SELECT * FROM offres ORDER BY id DESC";
 
-        // Fixed: Use DriverManager directly instead of DatabaseConnection class
         try (Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -85,11 +81,11 @@ public class JobDAO {
             while (rs.next()) {
                 Offre job = new Offre(
                         rs.getString("titre"),
-                        rs.getString("description"),
-                        rs.getString("ville"),
                         rs.getString("entreprise"),
+                        rs.getString("ville"),
+                        rs.getString("description"),
                         rs.getString("url"),
-                        rs.getString("category") // <--- Fixed: 'categorie' -> 'category'
+                        rs.getString("category")
                 );
                 jobs.add(job);
             }

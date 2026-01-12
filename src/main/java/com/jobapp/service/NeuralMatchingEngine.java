@@ -1,80 +1,157 @@
 package com.jobapp.service;
 
 import java.util.*;
+import java.text.Normalizer;
 
+/**
+ * NeuralMatchingEngine - Version "Hardcore Filter"
+ * Corrige le problème "Opérateur de Machine" vs "Machine Learning".
+ * Utilise des listes d'exclusion strictes pour nettoyer les résultats.
+ */
 public class NeuralMatchingEngine {
 
-    /**
-     * V4 DEBUG : Cette version affiche tout dans la console pour comprendre le "0".
-     */
-    public int calculateMatchScore(String cvText, String jobDescription) {
-        // 1. VÉRIFICATION DES ENTRÉES
-        if (cvText == null || cvText.trim().isEmpty()) {
-            System.out.println("⚠️ ALERTE : Le texte du CV est VIDE ou NULL !");
-            return 0;
+    // 1. LISTE DE MOTS "POISON" (BANNIS)
+    // Si l'un de ces mots est dans le TITRE du job, le score est forcé à 0.
+    // Cela élimine radicalement les métiers manuels ou hors-sujet.
+    private static final Set<String> POISON_TITLES = new HashSet<>(Arrays.asList(
+            "chauffeur", "conducteur", "coursier", "livreur", "transport", "permis",
+            "operateur", "operatrice", "usine", "ouvrier", "manoeuvre", "technicien maintenance",
+            "vendeur", "vendeuse", "caissier", "commercial", "teleconseiller", "call center",
+            "magasinier", "receptionniste", "assistant", "secretaire", "menage", "gardien",
+            "agent", "securite", "animatrice", "coiffeur", "estheticienne", "serveur", "cuisine"
+    ));
+
+    // 2. LISTE DE MOTS TECHNIQUES OBLIGATOIRES (WHITELIST)
+    // Une offre DOIT contenir au moins UN de ces mots pour être considérée.
+    private static final Set<String> MANDATORY_TECH_TOKENS = new HashSet<>(Arrays.asList(
+            "java", "python", "javascript", "typescript", "php", "c#", "c++", "ruby", "swift", "kotlin",
+            "sql", "mysql", "postgresql", "oracle", "mongodb", "nosql",
+            "react", "angular", "vue", "node", "django", "spring", "laravel", "symfony", "flutter",
+            "docker", "kubernetes", "aws", "azure", "cloud", "devops", "ci/cd", "git",
+            "machine learning", "big data", "data scientist", "data analyst", "ai", "intelligence",
+            "fullstack", "backend", "frontend", "developer", "developpeur", "ingenieur", "engineer",
+            "web", "mobile", "software", "informatique", "reseaux", "systeme"
+    ));
+
+    // 3. STOP WORDS (Mots vides à ignorer)
+    private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
+            "le", "la", "les", "de", "du", "des", "un", "une", "et", "est", "pour", "dans", "par",
+            "avec", "sur", "job", "offre", "poste", "profil", "recherche", "entreprise", "maroc",
+            "stage", "experience", "niveau", "date", "ville", "secteur", "mission", "equipe",
+            "client", "gestion", "projet", "motivation", "nous", "vous", "annee", "bac"
+    ));
+
+    public int calculateMatchScore(String cvText, String jobTitle, String jobDescription) {
+        if (cvText == null || jobTitle == null) return 0;
+
+        // --- PHASE 1 : DÉTECTION DU PROFIL CANDIDAT ---
+        // On vérifie si le CV est "IT/Tech". Si oui, on active le filtrage agressif.
+        boolean isCandidateTech = isTechProfile(cvText);
+
+        String titleLower = normalize(jobTitle);
+        String descLower = normalize(jobDescription != null ? jobDescription : "");
+        String fullJobText = titleLower + " " + descLower;
+
+        // --- PHASE 2 : LE "KILL SWITCH" (POISON) ---
+        // Si le candidat est Tech, on tue toute offre contenant des mots poison dans le titre.
+        if (isCandidateTech) {
+            for (String poison : POISON_TITLES) {
+                // On cherche le mot exact (ex: éviter de bannir "Operateur" si c'est "Operateur Saisie" mais ici c'est strict)
+                if (titleLower.contains(poison)) {
+                    // Exception : Si le titre contient aussi "Développeur" ou "Ingénieur", on pardonne
+                    // (Ex: "Ingénieur Commercial" -> Acceptable ? Non, on bannit aussi pour un dev)
+                    return 0;
+                }
+            }
+
+            // --- PHASE 3 : LE "MUST HAVE" (WHITELIST) ---
+            // L'offre contient-elle au moins 1 mot technique majeur ?
+            // Cela élimine "Opérateur de machine" car il ne contient pas "Java", "Python", "Data", etc.
+            boolean hasTechKeyword = false;
+            for (String token : MANDATORY_TECH_TOKENS) {
+                if (fullJobText.contains(token)) {
+                    hasTechKeyword = true;
+                    break;
+                }
+            }
+            // Si l'offre ne parle d'aucune techno connue, poubelle.
+            if (!hasTechKeyword) return 0;
         }
-        if (jobDescription == null || jobDescription.trim().isEmpty()) {
-            // C'est souvent ici le problème : le scraper ne remplit pas bien la description
-            // On ne spamme pas la console pour chaque job vide, on retourne juste 0
-            return 0;
-        }
 
-        // 2. DÉCOUPAGE SIMPLE (Sans Regex complexe pour éviter de tout supprimer)
-        Set<String> cvWords = simpleTokenize(cvText);
-        Set<String> jobWords = simpleTokenize(jobDescription);
+        // --- PHASE 4 : CALCUL DU SCORE CLASSIQUE ---
+        // Si on arrive ici, l'offre est "propre". On calcule la pertinence.
+        return calculateStandardScore(cvText, fullJobText, titleLower);
+    }
 
-        // 3. COMPARAISON
-        long matches = 0;
-        List<String> matchedWords = new ArrayList<>(); // Pour voir quels mots matchent
+    private int calculateStandardScore(String cvText, String jobText, String jobTitle) {
+        Set<String> cvWords = extractWords(cvText);
+        Set<String> jobWords = extractWords(jobText);
 
-        for (String word : cvWords) {
-            if (jobWords.contains(word)) {
-                matches++;
-                matchedWords.add(word);
+        double score = 0;
+        double totalWeight = 0;
+
+        for (String word : jobWords) {
+            double weight = 1.0;
+
+            // Les mots techniques valent 10 fois plus
+            if (MANDATORY_TECH_TOKENS.contains(word)) weight = 10.0;
+
+            // Les mots du titre valent 3 fois plus
+            if (jobTitle.contains(word)) weight += 3.0;
+
+            totalWeight += weight;
+
+            if (cvWords.contains(word)) {
+                score += weight;
             }
         }
 
-        // 4. CALCUL DU SCORE (Formule simplifiée)
-        // Score = (Mots trouvés / Racine carrée de la taille du CV) * 100
-        // On multiplie par 3.0 pour gonfler artificiellement le score et voir si ça bouge.
-        double rawScore = 0;
-        if (cvWords.size() > 0) {
-            rawScore = (double) matches / cvWords.size() * 100 * 3.0;
+        if (totalWeight == 0) return 0;
+
+        double percentage = (score / totalWeight) * 100;
+
+        // Boost final pour les titres exacts
+        if (jobTitle.contains("developpeur") || jobTitle.contains("developer") || jobTitle.contains("data")) {
+            percentage += 15;
         }
 
-        int finalScore = (int) Math.min(100, rawScore);
-
-        // 5. DEBUGGING (S'affiche seulement si on trouve un début de match ou pour le premier job)
-        // Pour ne pas spammer, on affiche seulement si le score > 0
-        if (finalScore > 0) {
-            System.out.println("✅ MATCH TROUVÉ ! Score: " + finalScore + "%");
-            System.out.println("   Mots communs : " + matchedWords);
-        }
-
-        return finalScore;
+        return (int) Math.min(100, percentage);
     }
 
     /**
-     * Nettoyage ultra-simple pour être sûr de ne rien perdre.
+     * Vérifie si le CV contient assez de mots clés Tech pour être considéré comme un profil IT.
      */
-    private Set<String> simpleTokenize(String text) {
-        // Mettre en minuscule
-        String lower = text.toLowerCase();
+    private boolean isTechProfile(String cvText) {
+        int techCount = 0;
+        String normalizedCV = normalize(cvText);
+        for (String token : MANDATORY_TECH_TOKENS) {
+            if (normalizedCV.contains(token)) techCount++;
+        }
+        return techCount >= 3; // Si le CV a au moins 3 mots techniques (ex: Java, SQL, Web)
+    }
 
-        // Remplacer les caractères non-lettres par des espaces
-        // On garde les chiffres (c# -> c, java8 -> java8)
-        String cleaned = lower.replaceAll("[^a-z0-9]", " ");
-
-        // Couper aux espaces
-        String[] parts = cleaned.split("\\s+");
-
-        Set<String> tokens = new HashSet<>();
-        for (String p : parts) {
-            // On garde tout ce qui fait plus de 2 lettres
-            if (p.length() > 2) {
-                tokens.add(p);
+    private Set<String> extractWords(String text) {
+        Set<String> words = new HashSet<>();
+        if (text == null) return words;
+        String normalized = normalize(text);
+        for (String w : normalized.split("\\s+")) {
+            if (w.length() > 2 && !STOP_WORDS.contains(w)) {
+                words.add(w);
             }
         }
-        return tokens;
+        return words;
+    }
+
+    private String normalize(String text) {
+        if (text == null) return "";
+        // Enlève les accents et garde uniquement lettres et chiffres (et + # pour C++ C#)
+        return Normalizer.normalize(text.toLowerCase(), Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .replaceAll("[^a-z0-9+#]", " ");
+    }
+
+    // Compatibilité
+    public int calculateMatchScore(String cvText, String fullText) {
+        return calculateMatchScore(cvText, fullText, fullText);
     }
 }
