@@ -1,4 +1,5 @@
-package com.jobapp.main;
+//ce fichier n'est pas obligatoire , c'est une version console de notre GUI
+/*package com.jobapp.main;
 
 import com.jobapp.dao.CVDAO;
 import com.jobapp.dao.JobDAO;
@@ -66,4 +67,4 @@ public class MainApp {
             System.err.println("Erreur : " + e.getMessage());
         }
     }
-}
+}*/

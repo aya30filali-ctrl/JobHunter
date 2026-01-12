@@ -33,10 +33,10 @@ public class SmartCVParser {
                     double[] outcomes = myCategorizer.categorize(tokens);
                     predictedCategory = myCategorizer.getBestCategory(outcomes);
 
-                    System.out.println("🧠 IA a prédit le profil : " + predictedCategory);
+                    System.out.println(" IA a prédit le profil : " + predictedCategory);
                 }
             } else {
-                System.out.println("⚠️ Fichier .bin introuvable, utilisation du fallback.");
+                System.out.println("⚠ Fichier .bin introuvable, utilisation du fallback.");
             }
 
         } catch (Exception e) {

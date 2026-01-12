@@ -17,8 +17,8 @@ public class ModelTrainer {
             System.out.println("📂 Recherche du fichier : " + trainingFile.getAbsolutePath());
 
             if (!trainingFile.exists()) {
-                System.err.println("❌ ERREUR : Le fichier 'training_data.txt' est introuvable !");
-                System.err.println("👉 Assurez-vous qu'il est bien à la racine du projet (JobHunterr).");
+                System.err.println(" ERREUR : Le fichier 'training_data.txt' est introuvable !");
+                System.err.println(" Assurez-vous qu'il est bien à la racine du projet (JobHunterr).");
                 return;
             }
 
@@ -43,8 +43,8 @@ public class ModelTrainer {
                 model.serialize(modelOut);
             }
 
-            System.out.println("✅ SUCCÈS ! Modèle généré : " + modelFile.getAbsolutePath());
-            System.out.println("👉 Vous pouvez maintenant lancer MainGui !");
+            System.out.println(" SUCCÈS ! Modèle généré : " + modelFile.getAbsolutePath());
+            System.out.println(" Vous pouvez maintenant lancer MainGui !");
 
         } catch (IOException e) {
             e.printStackTrace();
