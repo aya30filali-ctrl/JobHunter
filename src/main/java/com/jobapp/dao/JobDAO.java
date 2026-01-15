@@ -6,7 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class JobDAO {
-    // Port 3307 conservé
+
     private static final String URL = "jdbc:mysql://localhost:3307/job_portal_db";
     private static final String USER = "root";
     private static final String PASSWORD = "";
@@ -51,7 +51,7 @@ public class JobDAO {
     // 2. Save Match (Sauvegarde le lien CV <-> Offre <-> Score)
     public void saveMatch(int cvId, String jobUrl, int score) {
         // Insertion dans matching_results.
-        // La colonne 'status' prendra sa valeur par défaut (ex: NULL ou 'pending')
+
         String sql = "INSERT INTO matching_results (cv_id, job_url, match_score) VALUES (?, ?, ?) " +
                 "ON DUPLICATE KEY UPDATE match_score = VALUES(match_score)";
 
@@ -60,7 +60,7 @@ public class JobDAO {
 
             ps.setInt(1, cvId);
             ps.setString(2, jobUrl);
-            ps.setInt(3, score); // Stocké en INT comme dans votre table
+            ps.setInt(3, score); //
 
             ps.executeUpdate();
 
@@ -69,7 +69,7 @@ public class JobDAO {
         }
     }
 
-    // 3. Get All Jobs (Récupération pour l'affichage)
+    // 3. Get All Jobs
     public List<Offre> getAllJobs() {
         List<Offre> jobs = new ArrayList<>();
         String sql = "SELECT * FROM offres ORDER BY id DESC";

@@ -55,7 +55,6 @@ public class RekruteScraper implements JobScraper {
 
                     String category = classifier.predictCategory(title + " " + desc);
 
-                    // --- CORRECTION MAJEURE ICI ---
                     // Ordre : Titre, ENTREPRISE, Ville, DESCRIPTION, Url, Categorie
                     list.add(new Offre(title, company, city, desc, link, category));
                 }

@@ -52,14 +52,15 @@ public class MarocAnnoncesScraper implements JobScraper {
                         }
 
                         // Description virtuelle
+
                         String desc = title + " - " + city;
                         Element extraInfo = job.select(".block em").first();
                         if (extraInfo != null) desc += " " + extraInfo.text();
 
                         String category = classifier.predictCategory(desc);
 
-                        // --- CORRECTION MAJEURE ICI ---
-                        // Ordre : Titre, ENTREPRISE, Ville, DESCRIPTION, Url, Categorie
+
+
                         list.add(new Offre(title, company, city, desc, link, category));
 
                     } catch (Exception innerEx) {}

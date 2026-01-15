@@ -12,7 +12,7 @@ public class SectorWeighter {
     private static final Map<String, Set<String>> SECTORS = new HashMap<>();
 
     static {
-        // 1. SECTEUR IT / TECH / DATA (Le Profil de Fatima)
+        // 1. SECTEUR IT / TECH / DATA
         SECTORS.put("TECH", new HashSet<>(Arrays.asList(
                 "java", "python", "c++", "c#", "php", "javascript", "typescript", "html", "css",
                 "sql", "mysql", "oracle", "mongodb", "postgresql", "big", "data", "machine", "learning",
@@ -23,7 +23,7 @@ public class SectorWeighter {
                 "informatique", "numerique", "digital", "systeme", "reseaux", "analyse", "donnees"
         )));
 
-        // 2. SECTEUR VENTE / COMMERCE (À Bannir pour un profil Tech)
+        // 2. SECTEUR VENTE / COMMERCE
         SECTORS.put("SALES", new HashSet<>(Arrays.asList(
                 "commercial", "vente", "vendeur", "vendeuse", "sales", "client", "prospection", "negoce",
                 "negociation", "magasin", "boutique", "caissier", "rayon", "merchandiser", "retail",
@@ -31,7 +31,7 @@ public class SectorWeighter {
                 "marketing", "call", "center", "teleconseiller"
         )));
 
-        // 3. SECTEUR OPÉRATIONS / MANUEL (À Bannir absolument : Chauffeur, Ouvrier...)
+        // 3. SECTEUR OPÉRATIONS / MANUEL
         SECTORS.put("OPS", new HashSet<>(Arrays.asList(
                 "chauffeur", "conducteur", "transport", "logistique", "magasinier", "entrepot", "stock",
                 "usine", "production", "ouvrier", "technicien", "maintenance", "mecanique", "electricien",
@@ -62,6 +62,7 @@ public class SectorWeighter {
 
         // Analyse mot par mot
         // On remplace la ponctuation par des espaces pour isoler les mots
+
         String cleaned = lower.replaceAll("[^a-z0-9]", " ");
         String[] words = cleaned.split("\\s+");
 
@@ -75,6 +76,7 @@ public class SectorWeighter {
         }
 
         // Trouver le gagnant
+
         String winner = "UNKNOWN";
         int maxScore = 0;
 
@@ -86,6 +88,7 @@ public class SectorWeighter {
         }
 
         // Il faut un minimum de confiance (au moins 1 mot clé fort trouvé)
+
         return (maxScore >= 1) ? winner : "UNKNOWN";
     }
 }

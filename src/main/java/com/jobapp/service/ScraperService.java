@@ -5,6 +5,7 @@ import com.jobapp.model.Offre;
 import com.jobapp.scraping.EmploiMaScraper;
 import com.jobapp.scraping.JobScraper;
 import com.jobapp.scraping.RekruteScraper;
+import com.jobapp.model.DataList; //
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,13 +18,12 @@ public class ScraperService {
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
     private final JobDAO jobDAO = new JobDAO();
 
-    // List to hold multiple websites
+    // Liste des scrapers disponibles
     private final List<JobScraper> scrapers = new ArrayList<>();
 
     public ScraperService() {
-        // 1. Add Rekrute
+        // Enregistrement des sources de données
         scrapers.add(new RekruteScraper());
-        // 2. Add Emploi.ma
         scrapers.add(new EmploiMaScraper());
     }
 
@@ -31,23 +31,28 @@ public class ScraperService {
         Runnable task = () -> {
             System.out.println("--- 🕒 AUTO-UPDATE STARTED ---");
 
+
+
+            DataList<Offre> jobList = new DataList<>();
+
             for (JobScraper scraper : scrapers) {
                 System.out.println(">> Scraping source: " + scraper.getClass().getSimpleName() + "...");
 
-                // Scrape jobs
-                List<Offre> jobs = scraper.scrape("java");
 
-                // Save jobs using the NEW correct method
-                for (Offre job : jobs) {
-                    // ERROR FIX: We use saveJob() instead of saveJobAndScore()
+                List<Offre> found = scraper.scrape("java");
+
+
+                for (Offre job : found) {
+                    jobList.add(job);
                     jobDAO.saveJob(job);
                 }
             }
-            System.out.println("---  UPDATE FINISHED ---");
+
+
+            System.out.println("--- UPDATE FINISHED : " + jobList.size() + " offres traitées ---");
         };
 
-        // Run every 10 SECONDS (for testing)
-        // Change back to TimeUnit.HOURS when you are done testing
+
         scheduler.scheduleAtFixedRate(task, 0, 4, TimeUnit.HOURS);
     }
 }

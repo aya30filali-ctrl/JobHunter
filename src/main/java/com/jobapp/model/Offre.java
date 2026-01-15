@@ -21,7 +21,8 @@ public class Offre {
         this.category = category;
     }
 
-    // --- GETTERS & SETTERS ---
+    // GETTERS & SETTERS
+
     public int getId() { return id; }
     public void setId(int id) { this.id = id; }
 
@@ -46,12 +47,11 @@ public class Offre {
     public String getCategory() { return category; }
     public void setCategory(String category) { this.category = category; }
 
-    /**
-     * MÉTHODE CRITIQUE POUR LE MATCHING
-     * Combine toutes les infos pour que l'IA ait de la matière à analyser.
+    /*
+     Combine toutes les infos pour que l'IA ait de la matière à analyser.
      */
     public String getFullText() {
-        // Astuce : On concatène une chaîne vide "" au début pour éviter le NullPointerException
+        //  On concatène une chaîne vide "" au début pour éviter le NullPointerException
         return "" + titre + " " + description + " " + entreprise + " " + category + " " + ville;
     }
 }

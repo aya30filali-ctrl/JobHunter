@@ -46,7 +46,8 @@ public class EmploiMaScraper implements JobScraper {
                     String desc = job.select(".card-job-description").text();
                     String city = "Maroc";
 
-                    // Logique d'extraction ville simplifiée
+                    // Logique d'extraction ville
+
                     if (desc.contains("Région de :")) {
                         try {
                             String[] parts = desc.split("Région de :");
@@ -60,8 +61,7 @@ public class EmploiMaScraper implements JobScraper {
                     desc = desc.replaceAll("\\d{2}\\.\\d{2}\\.\\d{4}", ""); // Nettoyage date
                     String category = classifier.predictCategory(title + " " + desc);
 
-                    // --- CORRECTION MAJEURE ICI ---
-                    // Ordre : Titre, ENTREPRISE, Ville, DESCRIPTION, Url, Categorie
+
                     list.add(new Offre(title, company, city, desc, link, category));
                 }
 

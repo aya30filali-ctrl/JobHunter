@@ -31,7 +31,7 @@ import java.util.stream.Collectors;
 
 public class MainGui extends JFrame {
 
-    // --- PALETTE DE COULEURS PRO (V15) ---
+    // PALETTE DE COULEURS
     private final Color BG_MAIN = new Color(15, 23, 42);
     private final Color BG_PANEL = new Color(30, 41, 59);
 
@@ -68,7 +68,7 @@ public class MainGui extends JFrame {
 
     public MainGui() {
         setupTheme();
-        setTitle("JobHunter Pro - Dashboard");
+        setTitle("JobHunter  - Dashboard");
         setSize(1440, 900);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
@@ -327,7 +327,7 @@ public class MainGui extends JFrame {
             try (PDDocument doc = Loader.loadPDF(f)) {
                 String text = new PDFTextStripper().getText(doc);
 
-                // UI Mise à jour texte
+                // UI Mise à jour text
                 cvArea.setText("\n   ✅ Profil Chargé : " + f.getName() + "\n\n   Analyse des compétences terminée.\n   Prêt pour le calcul vectoriel.");
                 cvArea.setForeground(new Color(16, 185, 129));
 

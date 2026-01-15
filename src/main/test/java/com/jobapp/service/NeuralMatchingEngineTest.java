@@ -21,7 +21,7 @@ public class NeuralMatchingEngineTest {
         String desc = "Nous recherchons un expert en Java";
 
         int score = engine.calculateMatchScore(cv, title, desc);
-
+        System.out.println("Test Perfect Match - Score obtenu : " + score);
         // On s'attend à un score élevé (proche de 100)
         assertTrue(score > 80, "Le score devrait être élevé pour un match parfait");
     }

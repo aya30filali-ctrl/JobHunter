@@ -3,11 +3,7 @@ package com.jobapp.service;
 import java.util.*;
 import java.text.Normalizer;
 
-/**
- * NeuralMatchingEngine - Version "Hardcore Filter"
- * Corrige le problème "Opérateur de Machine" vs "Machine Learning".
- * Utilise des listes d'exclusion strictes pour nettoyer les résultats.
- */
+
 public class NeuralMatchingEngine {
 
     // 1. LISTE DE MOTS "POISON" (BANNIS)
@@ -44,7 +40,7 @@ public class NeuralMatchingEngine {
     public int calculateMatchScore(String cvText, String jobTitle, String jobDescription) {
         if (cvText == null || jobTitle == null) return 0;
 
-        // --- PHASE 1 : DÉTECTION DU PROFIL CANDIDAT ---
+        // PHASE 1 : DÉTECTION DU PROFIL CANDIDAT
         // On vérifie si le CV est "IT/Tech". Si oui, on active le filtrage agressif.
         boolean isCandidateTech = isTechProfile(cvText);
 
@@ -52,7 +48,7 @@ public class NeuralMatchingEngine {
         String descLower = normalize(jobDescription != null ? jobDescription : "");
         String fullJobText = titleLower + " " + descLower;
 
-        // --- PHASE 2 : LE "KILL SWITCH" (POISON) ---
+        //  PHASE 2 : LE "KILL SWITCH" (POISON)
         // Si le candidat est Tech, on tue toute offre contenant des mots poison dans le titre.
         if (isCandidateTech) {
             for (String poison : POISON_TITLES) {
@@ -64,7 +60,7 @@ public class NeuralMatchingEngine {
                 }
             }
 
-            // --- PHASE 3 : LE "MUST HAVE" (WHITELIST) ---
+            // PHASE 3 : LE "MUST HAVE" (WHITELIST)
             // L'offre contient-elle au moins 1 mot technique majeur ?
             // Cela élimine "Opérateur de machine" car il ne contient pas "Java", "Python", "Data", etc.
             boolean hasTechKeyword = false;
@@ -78,8 +74,9 @@ public class NeuralMatchingEngine {
             if (!hasTechKeyword) return 0;
         }
 
-        // --- PHASE 4 : CALCUL DU SCORE CLASSIQUE ---
+        //PHASE 4 : CALCUL DU SCORE CLASSIQUE
         // Si on arrive ici, l'offre est "propre". On calcule la pertinence.
+
         return calculateStandardScore(cvText, fullJobText, titleLower);
     }
 
@@ -94,9 +91,11 @@ public class NeuralMatchingEngine {
             double weight = 1.0;
 
             // Les mots techniques valent 10 fois plus
+
             if (MANDATORY_TECH_TOKENS.contains(word)) weight = 10.0;
 
             // Les mots du titre valent 3 fois plus
+
             if (jobTitle.contains(word)) weight += 3.0;
 
             totalWeight += weight;
@@ -111,6 +110,7 @@ public class NeuralMatchingEngine {
         double percentage = (score / totalWeight) * 100;
 
         // Boost final pour les titres exacts
+
         if (jobTitle.contains("developpeur") || jobTitle.contains("developer") || jobTitle.contains("data")) {
             percentage += 15;
         }
@@ -151,6 +151,7 @@ public class NeuralMatchingEngine {
     }
 
     // Compatibilité
+
     public int calculateMatchScore(String cvText, String fullText) {
         return calculateMatchScore(cvText, fullText, fullText);
     }
